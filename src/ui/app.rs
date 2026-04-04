@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use iced::widget::{column, container, row, scrollable};
+use iced::widget::{column, container, row};
 use iced::{Element, Length, Padding, Subscription, Theme};
 
 use crate::metrics::SystemMetrics;
@@ -90,26 +90,39 @@ impl RustTop {
         let net_view = network_view(&m.network);
         let disks = disk_view(&m.disk);
 
-        // Left panel: side-by-side graphs + cores + GPU + network/disk
-        let left_content = column![
+        // Left panel: CPU full-width, cores, GPU, then network | disks+memory
+        let left_panel = column![
+            // CPU graph — full width
+            container(cpu_graph)
+                .width(Length::Fill)
+                .height(Length::FillPortion(2)),
+            // CPU cores
+            container(cores_view)
+                .width(Length::Fill)
+                .height(Length::FillPortion(2)),
+            // GPU panel
+            container(gpu_panel)
+                .width(Length::Fill)
+                .height(Length::FillPortion(3)),
+            // Bottom row: Network (left) | Disks + Memory (right)
             row![
-                container(cpu_graph).width(Length::FillPortion(1)),
-                container(mem_graph).width(Length::FillPortion(1)),
+                container(net_view)
+                    .width(Length::FillPortion(1))
+                    .height(Length::Fill),
+                column![
+                    disks,
+                    mem_graph,
+                ]
+                .spacing(8)
+                .width(Length::FillPortion(1))
+                .height(Length::Fill),
             ]
-            .spacing(8),
-            cores_view,
-            gpu_panel,
-            row![
-                container(net_view).width(Length::FillPortion(1)),
-                container(disks).width(Length::FillPortion(1)),
-            ]
-            .spacing(8),
+            .spacing(8)
+            .height(Length::FillPortion(4)),
         ]
-        .spacing(8);
-
-        let left_panel = scrollable(left_content)
-            .width(Length::FillPortion(1))
-            .height(Length::Fill);
+        .spacing(8)
+        .width(Length::FillPortion(1))
+        .height(Length::Fill);
 
         // Right panel: process table
         let right_panel = container(process_table_view(&m.processes))

@@ -7,7 +7,7 @@ license = "MIT"
 
 [dependencies]
 # GUI framework - GPU-accelerated, cross-platform
-iced = { version = "0.13", features = ["canvas", "tokio", "advanced"] }
+iced = { version = "0.13", features = ["canvas", "tokio", "advanced", "image"] }
 
 # System metrics - cross-platform (Linux, macOS, Windows)
 sysinfo = "0.35"

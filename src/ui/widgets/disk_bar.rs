@@ -49,5 +49,6 @@ pub fn disk_view<'a, Message: 'a>(disks: &DiskMetrics) -> Element<'a, Message> {
             ..Default::default()
         })
         .width(Length::Fill)
+        .height(Length::Shrink)
         .into()
 }

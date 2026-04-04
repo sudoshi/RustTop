@@ -161,7 +161,10 @@ pub fn graph_view<'a, Message: 'a>(
     label: &str,
     current_value: &str,
 ) -> Element<'a, Message> {
-    graph_view_sized(data, max_value, color, label, current_value, 120.0)
+    Canvas::new(Graph::new(data, max_value, color, label, current_value))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
 }
 
 pub fn graph_view_sized<'a, Message: 'a>(

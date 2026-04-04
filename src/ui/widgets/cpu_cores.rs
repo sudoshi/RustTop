@@ -161,13 +161,8 @@ impl<Message> canvas::Program<Message> for CpuCoresView {
 }
 
 pub fn cpu_cores_view<'a, Message: 'a>(cpu: &CpuMetrics) -> Element<'a, Message> {
-    // Calculate height based on core count
-    let cols = 4;
-    let rows = (cpu.core_count + cols - 1) / cols;
-    let height = 28.0 + rows as f32 * 18.0 + 12.0;
-
     Canvas::new(CpuCoresView::new(cpu))
         .width(Length::Fill)
-        .height(Length::Fixed(height.max(60.0)))
+        .height(Length::Fill)
         .into()
 }

@@ -232,11 +232,13 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
             &format!("{:.0}%", dev.gpu_usage),
         );
 
-        let gpu_col = column![title, gpu_bar, vram_bar, stats_row, gpu_graph].spacing(4);
+        let gpu_col = column![title, gpu_bar, vram_bar, stats_row, gpu_graph]
+            .spacing(4)
+            .height(Length::Fill);
         panels.push(gpu_col.into());
     }
 
-    container(column(panels).spacing(8))
+    container(column(panels).spacing(8).height(Length::Fill))
         .padding(Padding::from([8, 12]))
         .style(|_theme: &iced::Theme| container::Style {
             background: Some(colors::SURFACE.into()),
@@ -248,5 +250,6 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
             ..Default::default()
         })
         .width(Length::Fill)
+        .height(Length::Fill)
         .into()
 }
