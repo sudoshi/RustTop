@@ -11,7 +11,6 @@ use crate::theme::colors;
 use crate::ui::widgets::{
     cpu_cores::cpu_cores_view,
     disk_bar::disk_view,
-    gauge::gauge_view,
     gpu_view::gpu_panel_view,
     graph::graph_view,
     header::header_view,
@@ -58,38 +57,6 @@ impl RustTop {
         // Header bar
         let header = header_view(m);
 
-        // Gauges row: CPU + Memory + Swap
-        let cpu_gauge = gauge_view(
-            m.cpu.global_usage,
-            colors::CPU_COLOR,
-            "CPU",
-            &format!("{} cores @ {} MHz", m.cpu.core_count, m.cpu.frequency_mhz),
-        );
-        let mem_gauge = gauge_view(
-            m.memory.mem_usage_percent,
-            colors::MEM_COLOR,
-            "Memory",
-            &format!(
-                "{} / {}",
-                MemoryMetrics::format_bytes(m.memory.used_mem),
-                MemoryMetrics::format_bytes(m.memory.total_mem),
-            ),
-        );
-        let swap_gauge = gauge_view(
-            m.memory.swap_usage_percent,
-            colors::SWAP_COLOR,
-            "Swap",
-            &format!(
-                "{} / {}",
-                MemoryMetrics::format_bytes(m.memory.used_swap),
-                MemoryMetrics::format_bytes(m.memory.total_swap),
-            ),
-        );
-
-        let gauges = row![cpu_gauge, mem_gauge, swap_gauge]
-            .spacing(12)
-            .align_y(iced::Alignment::Center);
-
         // CPU graph
         let cpu_graph = graph_view(
             &m.cpu.history,
@@ -123,9 +90,8 @@ impl RustTop {
         let net_view = network_view(&m.network);
         let disks = disk_view(&m.disk);
 
-        // Left panel: gauges + graphs + cores + GPU + network/disk
+        // Left panel: graphs + cores + GPU + network/disk
         let left_content = column![
-            gauges,
             cpu_graph,
             cores_view,
             mem_graph,
