@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=RustTop
+GenericName=System Monitor
+Comment=A beautiful GPU-accelerated system monitor
+Exec=/usr/bin/rust_top
+Icon=rust_top
+Terminal=false
+StartupWMClass=rust_top
+StartupNotify=true
+Categories=System;Monitor;Utility;
+Keywords=system;monitor;process;cpu;gpu;memory;network;top;htop;btop;

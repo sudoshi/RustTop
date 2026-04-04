@@ -1,0 +1,46 @@
+[package]
+name = "rust_top"
+version = "0.1.0"
+edition = "2021"
+description = "A beautiful, cross-platform system monitor built in Rust"
+license = "MIT"
+
+[dependencies]
+# GUI framework - GPU-accelerated, cross-platform
+iced = { version = "0.13", features = ["canvas", "tokio", "advanced"] }
+
+# System metrics - cross-platform (Linux, macOS, Windows)
+sysinfo = "0.35"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Time handling
+chrono = "0.4"
+
+# Color manipulation
+palette = "0.7"
+
+[package.metadata.deb]
+maintainer = "RustTop Contributors"
+copyright = "2026, RustTop Contributors"
+extended-description = """\
+RustTop is a beautiful, GPU-accelerated system monitor inspired by btop. \
+It displays CPU usage with per-core bars and activity dots, memory, swap, \
+disk, network, AMD GPU metrics, and a sortable/filterable process table. \
+Built with Rust and iced for smooth 60fps rendering."""
+section = "utils"
+priority = "optional"
+depends = "$auto"
+assets = [
+    ["target/release/rust_top", "usr/bin/", "755"],
+    ["assets/rust_top.desktop", "usr/share/applications/", "644"],
+    ["assets/icons/rust_top.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+]
+maintainer-scripts = "debian/"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
