@@ -3,7 +3,7 @@ mod theme;
 mod ui;
 
 use iced::window;
-use iced::{Size, Task};
+use iced::{Settings, Size, Task};
 use ui::app::RustTop;
 
 fn main() -> iced::Result {
@@ -23,6 +23,10 @@ fn main() -> iced::Result {
     iced::application("RustTop — System Monitor", RustTop::update, RustTop::view)
         .subscription(RustTop::subscription)
         .theme(RustTop::theme)
+        .settings(Settings {
+            id: Some("rust_top".to_string()),
+            ..Settings::default()
+        })
         .window(window_settings)
         .antialiasing(true)
         .run_with(|| {
