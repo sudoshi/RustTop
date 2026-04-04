@@ -90,11 +90,14 @@ impl RustTop {
         let net_view = network_view(&m.network);
         let disks = disk_view(&m.disk);
 
-        // Left panel: graphs + cores + GPU + network/disk
+        // Left panel: side-by-side graphs + cores + GPU + network/disk
         let left_content = column![
-            cpu_graph,
+            row![
+                container(cpu_graph).width(Length::FillPortion(1)),
+                container(mem_graph).width(Length::FillPortion(1)),
+            ]
+            .spacing(8),
             cores_view,
-            mem_graph,
             gpu_panel,
             row![
                 container(net_view).width(Length::FillPortion(1)),
