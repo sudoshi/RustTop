@@ -4,7 +4,7 @@ use iced::{Element, Length, Padding};
 use crate::metrics::network::NetworkMetrics;
 use crate::theme::colors;
 
-use super::graph::graph_view;
+use super::graph::graph_view_sized;
 
 pub fn network_view<'a, Message: 'a>(net: &NetworkMetrics) -> Element<'a, Message> {
     let title = text("Network").size(14).color(colors::ACCENT_GREEN);
@@ -28,20 +28,22 @@ pub fn network_view<'a, Message: 'a>(net: &NetworkMetrics) -> Element<'a, Messag
     let rx_f32: Vec<f32> = net.rx_history.iter().map(|v| *v as f32).collect();
     let tx_f32: Vec<f32> = net.tx_history.iter().map(|v| *v as f32).collect();
 
-    let rx_graph = graph_view(
+    let rx_graph = graph_view_sized(
         &rx_f32,
         max_net as f32,
         colors::NET_RX_COLOR,
         "Download",
         &NetworkMetrics::format_rate(net.total_rx_rate),
+        80.0,
     );
 
-    let tx_graph = graph_view(
+    let tx_graph = graph_view_sized(
         &tx_f32,
         max_net as f32,
         colors::NET_TX_COLOR,
         "Upload",
         &NetworkMetrics::format_rate(net.total_tx_rate),
+        80.0,
     );
 
     container(
