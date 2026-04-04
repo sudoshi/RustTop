@@ -108,12 +108,12 @@ impl RustTop {
         .spacing(8);
 
         let left_panel = scrollable(left_content)
-            .width(Length::FillPortion(3))
+            .width(Length::FillPortion(1))
             .height(Length::Fill);
 
         // Right panel: process table
         let right_panel = container(process_table_view(&m.processes))
-            .width(Length::FillPortion(2))
+            .width(Length::FillPortion(1))
             .height(Length::Fill);
 
         // Main layout
