@@ -69,8 +69,8 @@ impl<Message> canvas::Program<Message> for CpuCoresView {
             ..canvas::Text::default()
         });
 
-        // Layout: 2 columns of cores
-        let cols = 2;
+        // Layout: 4 columns of cores
+        let cols = 4;
         let rows_per_col = (self.core_count + cols - 1) / cols;
         let col_w = (w - padding * 3.0) / cols as f32;
         let row_h = 18.0;
@@ -162,7 +162,7 @@ impl<Message> canvas::Program<Message> for CpuCoresView {
 
 pub fn cpu_cores_view<'a, Message: 'a>(cpu: &CpuMetrics) -> Element<'a, Message> {
     // Calculate height based on core count
-    let cols = 2;
+    let cols = 4;
     let rows = (cpu.core_count + cols - 1) / cols;
     let height = 28.0 + rows as f32 * 18.0 + 12.0;
 
