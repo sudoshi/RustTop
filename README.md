@@ -157,4 +157,4 @@ MIT
 
 ## Contributing
 
-PRs welcome. The codebase is small (~2000 lines of Rust) and well-organized. If you want to add NVIDIA GPU support, Intel GPU support, or a new widget -- go for it.
+PRs welcome. The codebase is small (~2500 lines of Rust) and well-organized. If you want to add Intel GPU support, Windows compatibility, or a new widget -- go for it.
