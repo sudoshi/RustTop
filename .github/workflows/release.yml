@@ -96,12 +96,14 @@ jobs:
           path: dist/
 
   build-macos:
-    runs-on: macos-13   # Intel — compatible with Hackintosh x86_64
+    runs-on: macos-latest   # Apple Silicon; we cross-compile Intel too for a universal binary
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -110,10 +112,16 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: macos-cargo-x86_64-apple-darwin-${{ hashFiles('**/Cargo.lock') }}
+          key: macos-cargo-universal-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build release binary
-        run: cargo build --release
+      - name: Build universal binary (Intel + Apple Silicon)
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          lipo -create \
+            target/x86_64-apple-darwin/release/rust_top \
+            target/aarch64-apple-darwin/release/rust_top \
+            -output target/release/rust_top_universal
 
       - name: Assemble .app bundle
         run: |
@@ -121,7 +129,7 @@ jobs:
           CONTENTS="$APP/Contents"
           mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 
-          cp target/release/rust_top "$CONTENTS/MacOS/rust_top"
+          cp target/release/rust_top_universal "$CONTENTS/MacOS/rust_top"
 
           # Build .icns from master PNG
           ICONSET=$(mktemp -d)/rust_top.iconset
@@ -166,12 +174,12 @@ jobs:
         run: |
           mkdir -p dist
           cd "$GITHUB_WORKSPACE"
-          zip -r dist/RustTop-macos-intel.zip RustTop.app
+          zip -r dist/RustTop-macos-universal.zip RustTop.app
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: macos-intel
+          name: macos-universal
           path: dist/
 
   release:
