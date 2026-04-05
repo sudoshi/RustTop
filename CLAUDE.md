@@ -1,8 +1,9 @@
 # RustTop — Beautiful System Monitor
 
 ## Project Status
-This is a fully working Rust GUI system monitor built with `iced` (GPU-accelerated) and `sysinfo`.
-It compiles and runs on macOS. Now being moved to Ubuntu Linux for native .deb packaging and AMD GPU testing.
+Fully working Rust GUI system monitor built with `iced` (GPU-accelerated) and `sysinfo`.
+Running on Ubuntu Linux with .deb packaging, GitHub Releases CI, and AMD GPU support verified.
+v0.1.1 released via GitHub Actions.
 
 ## What's Built
 - **CPU**: Global gauge, history graph, per-core bars with btop-style activity dots
@@ -10,7 +11,8 @@ It compiles and runs on macOS. Now being moved to Ubuntu Linux for native .deb p
 - **Network**: RX/TX rate graphs per interface
 - **Disks**: Usage per mount point with heat-colored percentages
 - **GPU (AMD + NVIDIA)**: AMD via sysfs (`/sys/class/drm/card*/device/`), NVIDIA via NVML (nvml-wrapper crate, dynamically loads libnvidia-ml). Both show utilization, VRAM, temp, clocks, power, fan. Auto-discovers at startup. Shows "No GPU detected" gracefully when none found.
-- **Processes**: Sortable (PID/Name/CPU/Mem/Status), filterable, scrollable
+- **Processes**: Sortable (PID/Name/CPU/Mem/Status), filterable, keyboard-navigable with selection and kill support
+- **Keyboard Shortcuts**: q quit, / filter, Esc clear, Up/Down select, k/Del kill, F1-F5 sort, Tab reverse. Help bar at bottom.
 - **Theme**: Dark Tokyo Night palette, neon accents, heat colors (green->yellow->red)
 - **Refresh**: 500ms interval
 
@@ -28,29 +30,26 @@ src/
 │   ├── mod.rs                 # Custom iced dark theme
 │   └── colors.rs              # Full color palette + heat_color() + lerp
 └── ui/
-    ├── app.rs                 # Main app state, update, view, subscription
+    ├── app.rs                 # Main app state, update, view, keyboard subscription
     └── widgets/               # All visual components
         ├── graph.rs           # Canvas sparkline with gradient fill + glow dot
-        ├── gauge.rs           # Arc gauge with heat coloring
-        ├── cpu_cores.rs       # btop-style per-core bars + activity dots
-        ├── gpu_view.rs        # AMD GPU panel (gauges + graphs + stats)
-        ├── header.rs, disk_bar.rs, network_view.rs, process_table.rs
+        ├── gauge.rs           # Arc gauge with heat coloring (available, unused)
+        ├── cpu_cores.rs       # btop-style 4-column per-core bars + activity dots
+        ├── gpu_view.rs        # GPU panel (AMD red / NVIDIA green, bars + stats + graph)
+        ├── header.rs          # System info bar (hostname, kernel, uptime)
+        ├── disk_bar.rs        # Disk usage with heat-colored percentages
+        ├── network_view.rs    # RX/TX sparkline graphs
+        └── process_table.rs   # Sortable, filterable, selectable process list
 ```
 
-## Next Steps on Ubuntu
-1. **Install Rust**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-2. **Install build deps**: `sudo apt install -y build-essential pkg-config libfontconfig1-dev libxkbcommon-dev libwayland-dev libvulkan-dev`
-3. **Build release**: `cargo build --release`
-4. **Test the app**: `./target/release/rust_top` — verify AMD GPU panel lights up with real data
-5. **Build .deb**: `cargo install cargo-deb && cargo deb`
-6. **Install**: `sudo apt install ./target/debian/rust-top_0.1.0-1_amd64.deb`
-7. **Verify**: Run `rust_top` from terminal or find "RustTop" in app launcher
-
-## Packaging
-- `cargo-deb` config is in `[package.metadata.deb]` in Cargo.toml
-- Desktop file: `assets/rust_top.desktop`
-- Icon: `assets/icons/rust_top.svg`
-- Post-install scripts: `debian/postinst`, `debian/postrm`
+## Packaging & Distribution
+- **GitHub Actions CI**: `.github/workflows/release.yml` — builds on tag push, creates GitHub Release with binary + .deb
+- **cargo-deb**: `[package.metadata.deb]` in Cargo.toml
+- **Flatpak**: `io.github.sudoshi.RustTop.yml` manifest (needs `cargo-sources.json` from `flatpak-cargo-generator.py`)
+- **crates.io**: Cargo.toml has repository, homepage, keywords, categories — ready for `cargo publish`
+- **Desktop file**: `assets/rust_top.desktop`
+- **Icons**: `assets/icons/rust_top.svg` + PNG at 48/128/256px
+- **Post-install scripts**: `debian/postinst`, `debian/postrm`
 
 ## Known Issues to Watch For
 - If iced fails to find a GPU backend on Linux, it falls back to tiny-skia (CPU rendering) — still works but slower

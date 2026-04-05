@@ -32,8 +32,9 @@ RustTop is a real-time system monitor built in Rust with the [iced](https://gith
 - **GPU (AMD + NVIDIA)** -- Auto-discovers AMD GPUs via sysfs and NVIDIA GPUs via NVML. Shows utilization and VRAM as compact horizontal bars, plus a history graph. Temperature, clock speed, power draw, and fan stats in a tight stats row. *(Gracefully shows "No GPU detected" when none found.)*
 - **Network** -- Per-interface RX/TX rate sparklines. Scales dynamically from idle to saturated links.
 - **Disks** -- Mount point, filesystem type, used/total, and heat-colored usage percentages. Warns you before you hit 100%.
-- **Processes** -- Sortable by PID, name, CPU%, memory, or status. Filterable with a live search box. Shows up to 200 processes with alternating row colors.
+- **Processes** -- Sortable by PID, name, CPU%, memory, or status. Filterable with a live search box. Keyboard-navigable with arrow keys and kill support. Shows up to 200 processes with selection highlighting.
 - **Dynamic Layout** -- Every panel uses proportional fill. Resize the window, go fullscreen on 4K, or squeeze it onto a laptop -- it adapts. No scrolling required.
+- **Keyboard Shortcuts** -- `q` quit, `/` filter, arrow keys to select, `k`/`Del` to kill, `F1`-`F5` to sort, `Tab` to reverse. Help bar at the bottom.
 - **Dark Tokyo Night Theme** -- Neon cyan, magenta, green, orange, and red accents on a deep dark background. Heat-colored indicators shift from green to yellow to red as values climb.
 
 ## Installation
@@ -92,7 +93,7 @@ cargo build --release
 ```bash
 cargo install cargo-deb
 cargo deb
-sudo apt install ./target/debian/rust-top_0.1.0-1_amd64.deb
+sudo apt install ./target/debian/rust-top_*.deb
 ```
 
 ## Architecture
@@ -106,7 +107,7 @@ src/
 │   ├── memory.rs              # RAM + swap metrics
 │   ├── disk.rs                # Mount point enumeration
 │   ├── network.rs             # Interface RX/TX rates
-│   ├── gpu.rs                 # AMD GPU via sysfs auto-discovery
+│   ├── gpu.rs                 # GPU metrics (AMD sysfs + NVIDIA NVML)
 │   └── process.rs             # Process list with sort/filter
 ├── theme/
 │   ├── mod.rs                 # Custom iced dark theme
