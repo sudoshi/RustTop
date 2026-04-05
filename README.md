@@ -12,7 +12,8 @@
   <a href="#features">Features</a> &bull;
   <a href="#installation">Installation</a> &bull;
   <a href="#building-from-source">Build</a> &bull;
-  <a href="#architecture">Architecture</a>
+  <a href="#architecture">Architecture</a> &bull;
+  <a href="ROADMAP.md">Roadmap</a>
 </p>
 
 ---
