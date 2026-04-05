@@ -21,6 +21,9 @@ pub const ACCENT_RED: Color = Color::from_rgb(0.94, 0.39, 0.47);
 pub const ACCENT_MAGENTA: Color = Color::from_rgb(0.80, 0.47, 0.94);
 pub const ACCENT_PINK: Color = Color::from_rgb(0.94, 0.47, 0.73);
 
+// Selection
+pub const ACCENT_BLUE_DIM: Color = Color::from_rgb(0.18, 0.22, 0.35);
+
 // Semantic
 pub const CPU_COLOR: Color = ACCENT_CYAN;
 pub const MEM_COLOR: Color = ACCENT_MAGENTA;

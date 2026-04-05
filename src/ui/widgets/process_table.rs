@@ -6,6 +6,8 @@ use crate::metrics::process::{ProcessMetrics, SortField};
 use crate::theme::colors;
 use crate::ui::app::Message;
 
+const FILTER_INPUT_ID: &str = "process_filter";
+
 fn header_button<'a>(label: &str, field: SortField, current: &SortField, ascending: bool) -> Element<'a, Message> {
     let arrow = if *current == field {
         if ascending { " ^" } else { " v" }
@@ -32,7 +34,7 @@ fn header_button<'a>(label: &str, field: SortField, current: &SortField, ascendi
     .into()
 }
 
-pub fn process_table_view<'a>(processes: &'a ProcessMetrics) -> Element<'a, Message> {
+pub fn process_table_view<'a>(processes: &'a ProcessMetrics, selected: Option<usize>) -> Element<'a, Message> {
     let title_row = row![
         text("Processes").size(14).color(colors::ACCENT_BLUE),
         Space::with_width(Length::Fill),
@@ -42,7 +44,8 @@ pub fn process_table_view<'a>(processes: &'a ProcessMetrics) -> Element<'a, Mess
     ]
     .align_y(iced::Alignment::Center);
 
-    let filter_input = text_input("Filter processes...", &processes.filter)
+    let filter_input = text_input("Filter processes... (/ to focus)", &processes.filter)
+        .id(text_input::Id::new(FILTER_INPUT_ID))
         .on_input(Message::FilterChanged)
         .size(12)
         .padding(Padding::from([4, 8]))
@@ -81,10 +84,20 @@ pub fn process_table_view<'a>(processes: &'a ProcessMetrics) -> Element<'a, Mess
     let mut proc_rows: Vec<Element<'a, Message>> = Vec::with_capacity(visible.len());
 
     for (idx, proc_info) in visible.iter().enumerate() {
-        let bg = if idx % 2 == 0 {
+        let is_selected = selected == Some(idx);
+
+        let bg = if is_selected {
+            colors::ACCENT_BLUE_DIM
+        } else if idx % 2 == 0 {
             colors::SURFACE
         } else {
             colors::SURFACE_LIGHT
+        };
+
+        let name_color = if is_selected {
+            colors::ACCENT_CYAN
+        } else {
+            colors::TEXT_PRIMARY
         };
 
         let cpu_color = colors::heat_color(proc_info.cpu_usage.min(100.0));
@@ -93,7 +106,7 @@ pub fn process_table_view<'a>(processes: &'a ProcessMetrics) -> Element<'a, Mess
             row![
                 container(text(format!("{}", proc_info.pid)).size(11).color(colors::TEXT_DIM))
                     .width(Length::Fixed(70.0)),
-                container(text(&proc_info.name).size(11).color(colors::TEXT_PRIMARY))
+                container(text(&proc_info.name).size(11).color(name_color))
                     .width(Length::Fill),
                 container(
                     text(format!("{:.1}", proc_info.cpu_usage))
@@ -120,6 +133,15 @@ pub fn process_table_view<'a>(processes: &'a ProcessMetrics) -> Element<'a, Mess
         )
         .style(move |_theme: &iced::Theme| container::Style {
             background: Some(bg.into()),
+            border: if is_selected {
+                iced::Border {
+                    color: colors::ACCENT_BLUE,
+                    width: 1.0,
+                    radius: 2.0.into(),
+                }
+            } else {
+                iced::Border::default()
+            },
             ..Default::default()
         })
         .width(Length::Fill);
