@@ -1,0 +1,43 @@
+app-id: io.github.sudoshi.RustTop
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: rust_top
+
+finish-args:
+  # GPU access for iced rendering
+  - --device=dri
+  # Wayland + X11 display
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  # Read system metrics (sysfs, procfs)
+  - --filesystem=/sys:ro
+  - --filesystem=/proc:ro
+  # Network interface stats
+  - --share=network
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/rust_top/cargo
+    RUST_BACKTRACE: '1'
+
+modules:
+  - name: rust_top
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --release --verbose
+      - install -Dm755 target/release/rust_top /app/bin/rust_top
+      - install -Dm644 assets/rust_top.desktop /app/share/applications/io.github.sudoshi.RustTop.desktop
+      - install -Dm644 assets/icons/rust_top.svg /app/share/icons/hicolor/scalable/apps/io.github.sudoshi.RustTop.svg
+      - install -Dm644 assets/icons/rust_top.png /app/share/icons/hicolor/256x256/apps/io.github.sudoshi.RustTop.png
+      - install -Dm644 assets/icons/rust_top_128.png /app/share/icons/hicolor/128x128/apps/io.github.sudoshi.RustTop.png
+      - install -Dm644 assets/icons/rust_top_48.png /app/share/icons/hicolor/48x48/apps/io.github.sudoshi.RustTop.png
+    sources:
+      - type: dir
+        path: .
+      - cargo-sources.json

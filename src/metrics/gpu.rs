@@ -1,24 +1,31 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use nvml_wrapper::Nvml;
+
 const HISTORY_SIZE: usize = 120;
 
 #[derive(Debug, Clone)]
-pub struct GpuDevice {
-    pub card_path: PathBuf,
-    pub hwmon_path: Option<PathBuf>,
-    pub name: String,
-    pub pci_id: String,
+pub enum GpuVendor {
+    Amd,
+    Nvidia,
 }
 
 #[derive(Debug, Clone)]
-pub struct GpuMetrics {
-    pub available: bool,
-    pub devices: Vec<GpuDeviceMetrics>,
+struct AmdDevice {
+    card_path: PathBuf,
+    hwmon_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+enum GpuBackend {
+    Amd(AmdDevice),
+    Nvidia { device_index: u32 },
 }
 
 #[derive(Debug, Clone)]
 pub struct GpuDeviceMetrics {
+    pub vendor: GpuVendor,
     pub name: String,
     pub gpu_usage: f32,
     pub vram_total: u64,
@@ -37,54 +44,145 @@ pub struct GpuDeviceMetrics {
     pub vram_history: Vec<f32>,
     pub temp_history: Vec<f32>,
     pub power_history: Vec<f32>,
-    device: GpuDevice,
+    backend: GpuBackend,
+}
+
+pub struct GpuMetrics {
+    pub available: bool,
+    pub devices: Vec<GpuDeviceMetrics>,
+    nvml: Option<Nvml>,
+}
+
+// Manual Debug because Nvml doesn't implement Debug
+impl std::fmt::Debug for GpuMetrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GpuMetrics")
+            .field("available", &self.available)
+            .field("devices", &self.devices)
+            .field("nvml", &self.nvml.is_some())
+            .finish()
+    }
+}
+
+// Manual Clone because Nvml doesn't implement Clone
+impl Clone for GpuMetrics {
+    fn clone(&self) -> Self {
+        Self {
+            available: self.available,
+            devices: self.devices.clone(),
+            // Re-init NVML for the clone if we had it
+            nvml: Nvml::init().ok(),
+        }
+    }
 }
 
 impl GpuMetrics {
     pub fn new() -> Self {
-        let devices = discover_amd_gpus();
-        let available = !devices.is_empty();
-        let device_metrics = devices
-            .into_iter()
-            .map(|dev| GpuDeviceMetrics {
-                name: dev.name.clone(),
-                gpu_usage: 0.0,
-                vram_total: 0,
-                vram_used: 0,
-                vram_usage_percent: 0.0,
-                temperature_edge: None,
-                temperature_junction: None,
-                temperature_memory: None,
-                gpu_clock_mhz: None,
-                vram_clock_mhz: None,
-                power_watts: None,
-                power_cap_watts: None,
-                fan_rpm: None,
-                fan_max_rpm: None,
-                gpu_history: Vec::with_capacity(HISTORY_SIZE),
-                vram_history: Vec::with_capacity(HISTORY_SIZE),
-                temp_history: Vec::with_capacity(HISTORY_SIZE),
-                power_history: Vec::with_capacity(HISTORY_SIZE),
-                device: dev,
-            })
-            .collect();
+        let mut device_metrics = Vec::new();
+
+        // Discover AMD GPUs via sysfs
+        let amd_devices = discover_amd_gpus();
+        for dev in amd_devices {
+            device_metrics.push(GpuDeviceMetrics::new_amd(dev));
+        }
+
+        // Discover NVIDIA GPUs via NVML
+        let nvml = Nvml::init().ok();
+        if let Some(ref nvml_handle) = nvml {
+            if let Ok(count) = nvml_handle.device_count() {
+                for i in 0..count {
+                    if let Ok(device) = nvml_handle.device_by_index(i) {
+                        let name = device.name().unwrap_or_else(|_| format!("NVIDIA GPU {}", i));
+                        device_metrics.push(GpuDeviceMetrics::new_nvidia(name, i));
+                    }
+                }
+            }
+        }
+
+        let available = !device_metrics.is_empty();
 
         Self {
             available,
             devices: device_metrics,
+            nvml,
         }
     }
 
     pub fn update(&mut self) {
         for dev in &mut self.devices {
-            dev.update();
+            match &dev.backend {
+                GpuBackend::Amd(_) => dev.update_amd(),
+                GpuBackend::Nvidia { device_index } => {
+                    if let Some(ref nvml) = self.nvml {
+                        let idx = *device_index;
+                        dev.update_nvidia(nvml, idx);
+                    }
+                }
+            }
         }
     }
 }
 
 impl GpuDeviceMetrics {
-    fn update(&mut self) {
-        let card = &self.device.card_path;
+    fn new_amd(amd_dev: AmdGpuDiscovery) -> Self {
+        Self {
+            vendor: GpuVendor::Amd,
+            name: amd_dev.name,
+            gpu_usage: 0.0,
+            vram_total: 0,
+            vram_used: 0,
+            vram_usage_percent: 0.0,
+            temperature_edge: None,
+            temperature_junction: None,
+            temperature_memory: None,
+            gpu_clock_mhz: None,
+            vram_clock_mhz: None,
+            power_watts: None,
+            power_cap_watts: None,
+            fan_rpm: None,
+            fan_max_rpm: None,
+            gpu_history: Vec::with_capacity(HISTORY_SIZE),
+            vram_history: Vec::with_capacity(HISTORY_SIZE),
+            temp_history: Vec::with_capacity(HISTORY_SIZE),
+            power_history: Vec::with_capacity(HISTORY_SIZE),
+            backend: GpuBackend::Amd(AmdDevice {
+                card_path: amd_dev.card_path,
+                hwmon_path: amd_dev.hwmon_path,
+            }),
+        }
+    }
+
+    fn new_nvidia(name: String, device_index: u32) -> Self {
+        Self {
+            vendor: GpuVendor::Nvidia,
+            name,
+            gpu_usage: 0.0,
+            vram_total: 0,
+            vram_used: 0,
+            vram_usage_percent: 0.0,
+            temperature_edge: None,
+            temperature_junction: None,
+            temperature_memory: None,
+            gpu_clock_mhz: None,
+            vram_clock_mhz: None,
+            power_watts: None,
+            power_cap_watts: None,
+            fan_rpm: None,
+            fan_max_rpm: None,
+            gpu_history: Vec::with_capacity(HISTORY_SIZE),
+            vram_history: Vec::with_capacity(HISTORY_SIZE),
+            temp_history: Vec::with_capacity(HISTORY_SIZE),
+            power_history: Vec::with_capacity(HISTORY_SIZE),
+            backend: GpuBackend::Nvidia { device_index },
+        }
+    }
+
+    fn update_amd(&mut self) {
+        let amd = match &self.backend {
+            GpuBackend::Amd(dev) => dev,
+            _ => return,
+        };
+        let card = &amd.card_path;
 
         // GPU utilization
         self.gpu_usage = read_sysfs_f32(&card.join("device/gpu_busy_percent")).unwrap_or(0.0);
@@ -99,7 +197,7 @@ impl GpuDeviceMetrics {
         };
 
         // Temperature (millidegrees -> degrees)
-        if let Some(hwmon) = &self.device.hwmon_path {
+        if let Some(hwmon) = &amd.hwmon_path {
             self.temperature_edge =
                 read_sysfs_f32(&hwmon.join("temp1_input")).map(|v| v / 1000.0);
             self.temperature_junction =
@@ -125,7 +223,7 @@ impl GpuDeviceMetrics {
             self.fan_max_rpm = read_sysfs_u64(&hwmon.join("fan1_max"));
         }
 
-        // If no hwmon but on Linux, try reading clocks from pp_dpm_sclk/pp_dpm_mclk
+        // If no hwmon, try reading clocks from pp_dpm_sclk/pp_dpm_mclk
         if self.gpu_clock_mhz.is_none() {
             self.gpu_clock_mhz = read_active_dpm_clock(&card.join("device/pp_dpm_sclk"));
         }
@@ -133,7 +231,64 @@ impl GpuDeviceMetrics {
             self.vram_clock_mhz = read_active_dpm_clock(&card.join("device/pp_dpm_mclk"));
         }
 
-        // Update histories
+        self.update_histories();
+    }
+
+    fn update_nvidia(&mut self, nvml: &Nvml, device_index: u32) {
+        let device = match nvml.device_by_index(device_index) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+
+        // GPU + memory utilization
+        if let Ok(util) = device.utilization_rates() {
+            self.gpu_usage = util.gpu as f32;
+        }
+
+        // VRAM
+        if let Ok(mem) = device.memory_info() {
+            self.vram_total = mem.total;
+            self.vram_used = mem.used;
+            self.vram_usage_percent = if mem.total > 0 {
+                (mem.used as f32 / mem.total as f32) * 100.0
+            } else {
+                0.0
+            };
+        }
+
+        // Temperature
+        if let Ok(temp) = device.temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu) {
+            self.temperature_edge = Some(temp as f32);
+        }
+
+        // Clocks
+        if let Ok(clock) = device.clock_info(nvml_wrapper::enum_wrappers::device::Clock::Graphics) {
+            self.gpu_clock_mhz = Some(clock as u64);
+        }
+        if let Ok(clock) = device.clock_info(nvml_wrapper::enum_wrappers::device::Clock::Memory) {
+            self.vram_clock_mhz = Some(clock as u64);
+        }
+
+        // Power (milliwatts -> watts)
+        if let Ok(power) = device.power_usage() {
+            self.power_watts = Some(power as f32 / 1000.0);
+        }
+        if let Ok(limit) = device.enforced_power_limit() {
+            self.power_cap_watts = Some(limit as f32 / 1000.0);
+        }
+
+        // Fan speed (percentage, convert to approximate RPM is not available — show percentage)
+        if let Ok(fan) = device.fan_speed(0) {
+            // NVML gives percentage, not RPM. Store as percentage in fan_rpm field
+            // and set max to 100 so the UI can show "XX%"
+            self.fan_rpm = Some(fan as u64);
+            self.fan_max_rpm = Some(100);
+        }
+
+        self.update_histories();
+    }
+
+    fn update_histories(&mut self) {
         push_history(&mut self.gpu_history, self.gpu_usage);
         push_history(&mut self.vram_history, self.vram_usage_percent);
         if let Some(temp) = self.temperature_edge.or(self.temperature_junction) {
@@ -169,7 +324,6 @@ fn read_active_dpm_clock(path: &Path) -> Option<u64> {
     let content = fs::read_to_string(path).ok()?;
     for line in content.lines() {
         if line.contains('*') {
-            // Format: "1: 1800Mhz *"
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 {
                 let freq_str = parts[1].trim_end_matches("Mhz").trim_end_matches("MHz");
@@ -180,8 +334,15 @@ fn read_active_dpm_clock(path: &Path) -> Option<u64> {
     None
 }
 
-/// Discover AMD GPUs by scanning /sys/class/drm/card*
-fn discover_amd_gpus() -> Vec<GpuDevice> {
+// AMD GPU discovery types and functions
+
+struct AmdGpuDiscovery {
+    card_path: PathBuf,
+    hwmon_path: Option<PathBuf>,
+    name: String,
+}
+
+fn discover_amd_gpus() -> Vec<AmdGpuDiscovery> {
     let mut devices = Vec::new();
 
     let drm_path = Path::new("/sys/class/drm");
@@ -196,7 +357,6 @@ fn discover_amd_gpus() -> Vec<GpuDevice> {
 
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        // Only look at cardN, not card0-DP-1 etc.
         if !name.starts_with("card") || name.contains('-') {
             continue;
         }
@@ -204,29 +364,24 @@ fn discover_amd_gpus() -> Vec<GpuDevice> {
         let card_path = entry.path();
         let device_path = card_path.join("device");
 
-        // Check if this is an AMD GPU by reading the vendor ID
         let vendor = read_sysfs_string(&device_path.join("vendor"));
         match vendor.as_deref() {
-            Some("0x1002") => {} // AMD vendor ID
+            Some("0x1002") => {}
             _ => continue,
         }
 
-        // Get device name from uevent or use PCI ID
         let pci_id = read_sysfs_string(&device_path.join("device"))
             .unwrap_or_else(|| "unknown".to_string());
 
-        let gpu_name = read_gpu_name(&device_path).unwrap_or_else(|| {
-            format!("AMD GPU ({})", pci_id)
-        });
+        let gpu_name = read_gpu_name(&device_path)
+            .unwrap_or_else(|| format!("AMD GPU ({})", pci_id));
 
-        // Find hwmon path
         let hwmon_path = find_hwmon_path(&device_path);
 
-        devices.push(GpuDevice {
+        devices.push(AmdGpuDiscovery {
             card_path,
             hwmon_path,
             name: gpu_name,
-            pci_id,
         });
     }
 
@@ -234,7 +389,6 @@ fn discover_amd_gpus() -> Vec<GpuDevice> {
 }
 
 fn read_gpu_name(device_path: &Path) -> Option<String> {
-    // Try reading from uevent for a product name
     let uevent = read_sysfs_string(&device_path.join("uevent"))?;
     for line in uevent.lines() {
         if line.starts_with("PCI_SLOT_NAME=") || line.starts_with("DRIVER=") {
@@ -261,7 +415,6 @@ fn find_hwmon_path(device_path: &Path) -> Option<PathBuf> {
         }
     }
 
-    // Just return the first hwmon if none matched specifically
     fs::read_dir(&hwmon_dir)
         .ok()?
         .flatten()

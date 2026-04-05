@@ -9,7 +9,7 @@ It compiles and runs on macOS. Now being moved to Ubuntu Linux for native .deb p
 - **Memory/Swap**: Gauges + history graphs
 - **Network**: RX/TX rate graphs per interface
 - **Disks**: Usage per mount point with heat-colored percentages
-- **AMD GPU**: Reads sysfs (`/sys/class/drm/card*/device/`) for utilization, VRAM, temp, clocks, power, fan — auto-discovers AMD GPUs by vendor ID 0x1002. Shows "No AMD GPU detected" gracefully when none found.
+- **GPU (AMD + NVIDIA)**: AMD via sysfs (`/sys/class/drm/card*/device/`), NVIDIA via NVML (nvml-wrapper crate, dynamically loads libnvidia-ml). Both show utilization, VRAM, temp, clocks, power, fan. Auto-discovers at startup. Shows "No GPU detected" gracefully when none found.
 - **Processes**: Sortable (PID/Name/CPU/Mem/Status), filterable, scrollable
 - **Theme**: Dark Tokyo Night palette, neon accents, heat colors (green->yellow->red)
 - **Refresh**: 500ms interval
@@ -22,7 +22,7 @@ src/
 │   ├── collector.rs           # SystemMetrics orchestrator
 │   ├── cpu.rs, memory.rs      # Per-core history, usage tracking
 │   ├── disk.rs, network.rs    # Disk/network stats
-│   ├── gpu.rs                 # AMD GPU via sysfs (Linux-only metrics)
+│   ├── gpu.rs                 # GPU metrics (AMD sysfs + NVIDIA NVML)
 │   └── process.rs             # Process list with sort/filter/kill
 ├── theme/
 │   ├── mod.rs                 # Custom iced dark theme
@@ -57,3 +57,4 @@ src/
 - Wayland vs X11: iced supports both, but if there are issues try `WAYLAND_DISPLAY= ./target/release/rust_top` to force X11
 - The `$auto` depends in cargo-deb will properly detect shared lib deps when built natively on Linux
 - AMD GPU sysfs paths may vary — `gpu.rs` auto-discovers by scanning `/sys/class/drm/card*/device/vendor` for 0x1002
+- NVIDIA GPU requires NVIDIA drivers with libnvidia-ml.so — nvml-wrapper loads it dynamically at runtime, compiles fine without it

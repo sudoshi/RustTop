@@ -2,7 +2,7 @@ use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
 use iced::widget::{column, container, row, text};
 use iced::{mouse, Element, Length, Padding, Rectangle, Renderer, Theme};
 
-use crate::metrics::gpu::{self, GpuMetrics};
+use crate::metrics::gpu::{self, GpuMetrics, GpuVendor};
 use crate::theme::colors;
 use crate::ui::widgets::graph::graph_view;
 
@@ -129,10 +129,10 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
         return container(
             column![
                 text("GPU").size(14).color(colors::ACCENT_GREEN),
-                text("No AMD GPU detected")
+                text("No GPU detected")
                     .size(12)
                     .color(colors::TEXT_DIM),
-                text("(AMD sysfs monitoring requires Linux)")
+                text("(Supports AMD via sysfs, NVIDIA via NVML)")
                     .size(10)
                     .color(colors::TEXT_DIM),
             ]
@@ -155,9 +155,13 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
     let mut panels: Vec<Element<'a, Message>> = Vec::new();
 
     for dev in &gpu.devices {
+        let vendor_color = match dev.vendor {
+            GpuVendor::Amd => colors::ACCENT_RED,
+            GpuVendor::Nvidia => colors::ACCENT_GREEN,
+        };
         let title = text(format!("GPU — {}", dev.name))
             .size(14)
-            .color(colors::ACCENT_GREEN);
+            .color(vendor_color);
 
         // Horizontal bars for GPU and VRAM usage
         let gpu_bar = horizontal_bar_view(
@@ -210,8 +214,12 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
             );
         }
         if let Some(rpm) = dev.fan_rpm {
+            let fan_text = match dev.vendor {
+                GpuVendor::Nvidia => format!("Fan {}%", rpm),
+                GpuVendor::Amd => format!("{} RPM", rpm),
+            };
             stats.push(
-                text(format!("{} RPM", rpm))
+                text(fan_text)
                     .size(10)
                     .color(colors::TEXT_SECONDARY)
                     .into(),

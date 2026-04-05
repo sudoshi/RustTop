@@ -29,7 +29,7 @@ RustTop is a real-time system monitor built in Rust with the [iced](https://gith
 
 - **CPU** -- Full-width utilization graph with history, plus a btop-style per-core view with 4-column bars and activity dot sparklines. Supports up to 128 cores without breaking a sweat.
 - **Memory** -- Usage graph with percentage, used/total breakdown. Lives next to your disk info so you can see storage and RAM at a glance.
-- **AMD GPU** -- Auto-discovers AMD GPUs via sysfs. Shows utilization and VRAM as compact horizontal bars, plus a history graph. Temperature, clock speed, power draw, and fan RPM in a tight stats row. *(Linux only -- gracefully shows "No AMD GPU detected" elsewhere.)*
+- **GPU (AMD + NVIDIA)** -- Auto-discovers AMD GPUs via sysfs and NVIDIA GPUs via NVML. Shows utilization and VRAM as compact horizontal bars, plus a history graph. Temperature, clock speed, power draw, and fan stats in a tight stats row. *(Gracefully shows "No GPU detected" when none found.)*
 - **Network** -- Per-interface RX/TX rate sparklines. Scales dynamically from idle to saturated links.
 - **Disks** -- Mount point, filesystem type, used/total, and heat-colored usage percentages. Warns you before you hit 100%.
 - **Processes** -- Sortable by PID, name, CPU%, memory, or status. Filterable with a live search box. Shows up to 200 processes with alternating row colors.
@@ -38,14 +38,26 @@ RustTop is a real-time system monitor built in Rust with the [iced](https://gith
 
 ## Installation
 
-### From .deb (Ubuntu/Debian)
+### From GitHub Releases (Recommended)
+
+Download the latest release binary or `.deb` from the [Releases page](https://github.com/sudoshi/RustTop/releases).
 
 ```bash
-# Download the latest release
-sudo apt install ./rust-top_0.1.0-1_amd64.deb
+# Binary
+chmod +x rust_top-linux-amd64
+./rust_top-linux-amd64
+
+# Or .deb package
+sudo apt install ./rust-top_*.deb
 ```
 
 Then run `rust_top` from your terminal or find **RustTop** in your application launcher.
+
+### From crates.io
+
+```bash
+cargo install rust_top
+```
 
 ### From Source
 
@@ -121,12 +133,13 @@ Clean separation: `metrics/` knows nothing about the GUI. `ui/widgets/` knows no
 | Language | Rust | Speed, safety, no GC pauses |
 | GUI | [iced](https://github.com/iced-rs/iced) 0.13 | GPU-accelerated, pure Rust, Elm architecture |
 | System info | [sysinfo](https://github.com/GuillaumeGomez/sysinfo) | Cross-platform CPU/mem/disk/network/process |
-| GPU metrics | Raw sysfs reads | Zero dependencies, AMD auto-discovery via vendor ID `0x1002` |
+| AMD GPU | Raw sysfs reads | Zero dependencies, auto-discovery via vendor ID `0x1002` |
+| NVIDIA GPU | [nvml-wrapper](https://crates.io/crates/nvml-wrapper) | Dynamic NVML loading, auto-discovery at runtime |
 | Rendering | wgpu (GPU) / tiny-skia (CPU fallback) | Hardware acceleration with graceful fallback |
 
 ## Troubleshooting
 
-**No GPU panel?** AMD GPU monitoring reads from `/sys/class/drm/card*/device/`. If you don't have an AMD GPU, the panel shows a friendly "No AMD GPU detected" message. NVIDIA support is not yet implemented.
+**No GPU panel?** AMD GPUs are detected via `/sys/class/drm/card*/device/`. NVIDIA GPUs are detected via NVML (requires NVIDIA drivers). If no GPU is found, the panel shows a friendly "No GPU detected" message.
 
 **Wayland vs X11?** RustTop works on both. If you hit rendering issues on Wayland, force X11:
 ```bash

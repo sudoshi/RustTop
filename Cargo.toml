@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 description = "A beautiful, cross-platform system monitor built in Rust"
 license = "MIT"
+repository = "https://github.com/sudoshi/RustTop"
+homepage = "https://github.com/sudoshi/RustTop"
+readme = "README.md"
+keywords = ["system-monitor", "gpu", "top", "htop", "iced"]
+categories = ["command-line-utilities", "visualization"]
 
 [dependencies]
 # GUI framework - GPU-accelerated, cross-platform
@@ -20,6 +25,9 @@ chrono = "0.4"
 
 # Color manipulation
 palette = "0.7"
+
+# NVIDIA GPU monitoring (dynamically loads libnvidia-ml at runtime)
+nvml-wrapper = "0.10"
 
 [package.metadata.deb]
 maintainer = "RustTop Contributors"
