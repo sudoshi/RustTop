@@ -8,7 +8,7 @@ set -euo pipefail
 APP_NAME="RustTop"
 BINARY="rust_top"
 BUNDLE_ID="io.github.sudoshi.RustTop"
-VERSION="0.1.0"
+VERSION="0.2.0"
 MIN_MACOS="12.0"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
