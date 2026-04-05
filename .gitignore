@@ -1,1 +1,7 @@
 /target
+
+# macOS
+.DS_Store
+
+# App bundle (build artifact — use scripts/build-macos-app.sh)
+*.app/

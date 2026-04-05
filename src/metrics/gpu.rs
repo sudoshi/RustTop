@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[cfg(not(target_os = "macos"))]
 use nvml_wrapper::Nvml;
 
 const HISTORY_SIZE: usize = 120;
@@ -21,6 +22,8 @@ struct AmdDevice {
 enum GpuBackend {
     Amd(AmdDevice),
     Nvidia { device_index: u32 },
+    #[cfg(target_os = "macos")]
+    MacOs,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +53,7 @@ pub struct GpuDeviceMetrics {
 pub struct GpuMetrics {
     pub available: bool,
     pub devices: Vec<GpuDeviceMetrics>,
+    #[cfg(not(target_os = "macos"))]
     nvml: Option<Nvml>,
 }
 
@@ -59,7 +63,6 @@ impl std::fmt::Debug for GpuMetrics {
         f.debug_struct("GpuMetrics")
             .field("available", &self.available)
             .field("devices", &self.devices)
-            .field("nvml", &self.nvml.is_some())
             .finish()
     }
 }
@@ -70,6 +73,7 @@ impl Clone for GpuMetrics {
         Self {
             available: self.available,
             devices: self.devices.clone(),
+            #[cfg(not(target_os = "macos"))]
             // Re-init NVML for the clone if we had it
             nvml: Nvml::init().ok(),
         }
@@ -80,20 +84,31 @@ impl GpuMetrics {
     pub fn new() -> Self {
         let mut device_metrics = Vec::new();
 
-        // Discover AMD GPUs via sysfs
-        let amd_devices = discover_amd_gpus();
-        for dev in amd_devices {
-            device_metrics.push(GpuDeviceMetrics::new_amd(dev));
+        #[cfg(target_os = "macos")]
+        {
+            // Discover AMD/Metal GPUs on macOS via IOKit
+            for dev in discover_macos_gpus() {
+                device_metrics.push(GpuDeviceMetrics::new_macos(dev));
+            }
         }
 
-        // Discover NVIDIA GPUs via NVML
-        let nvml = Nvml::init().ok();
-        if let Some(ref nvml_handle) = nvml {
-            if let Ok(count) = nvml_handle.device_count() {
-                for i in 0..count {
-                    if let Ok(device) = nvml_handle.device_by_index(i) {
-                        let name = device.name().unwrap_or_else(|_| format!("NVIDIA GPU {}", i));
-                        device_metrics.push(GpuDeviceMetrics::new_nvidia(name, i));
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Discover AMD GPUs via sysfs
+            let amd_devices = discover_amd_gpus();
+            for dev in amd_devices {
+                device_metrics.push(GpuDeviceMetrics::new_amd(dev));
+            }
+
+            // Discover NVIDIA GPUs via NVML
+            let nvml = Nvml::init().ok();
+            if let Some(ref nvml_handle) = nvml {
+                if let Ok(count) = nvml_handle.device_count() {
+                    for i in 0..count {
+                        if let Ok(device) = nvml_handle.device_by_index(i) {
+                            let name = device.name().unwrap_or_else(|_| format!("NVIDIA GPU {}", i));
+                            device_metrics.push(GpuDeviceMetrics::new_nvidia(name, i));
+                        }
                     }
                 }
             }
@@ -101,9 +116,13 @@ impl GpuMetrics {
 
         let available = !device_metrics.is_empty();
 
+        #[cfg(not(target_os = "macos"))]
+        let nvml = Nvml::init().ok();
+
         Self {
             available,
             devices: device_metrics,
+            #[cfg(not(target_os = "macos"))]
             nvml,
         }
     }
@@ -111,10 +130,16 @@ impl GpuMetrics {
     pub fn update(&mut self) {
         for dev in &mut self.devices {
             match &dev.backend {
+                #[cfg(target_os = "macos")]
+                GpuBackend::MacOs => dev.update_macos(),
                 GpuBackend::Amd(_) => dev.update_amd(),
-                GpuBackend::Nvidia { device_index } => {
+                GpuBackend::Nvidia { device_index: _ } => {
+                    #[cfg(not(target_os = "macos"))]
                     if let Some(ref nvml) = self.nvml {
-                        let idx = *device_index;
+                        let idx = match &dev.backend {
+                            GpuBackend::Nvidia { device_index } => *device_index,
+                            _ => continue,
+                        };
                         dev.update_nvidia(nvml, idx);
                     }
                 }
@@ -122,6 +147,125 @@ impl GpuMetrics {
         }
     }
 }
+
+// ── macOS GPU support ────────────────────────────────────────────────────────
+
+#[cfg(target_os = "macos")]
+struct MacOsGpuDiscovery {
+    name: String,
+    vram_total: u64,
+}
+
+/// Run `ioreg -r -c IOAccelerator -l -w 0` and return stdout.
+#[cfg(target_os = "macos")]
+fn run_ioreg() -> Option<String> {
+    let output = std::process::Command::new("ioreg")
+        .args(["-r", "-c", "IOAccelerator", "-l", "-w", "0"])
+        .output()
+        .ok()?;
+    String::from_utf8(output.stdout).ok()
+}
+
+/// Extract the content of a named dict from ioreg text output.
+/// Searches for `"key" = {` and returns the content between the braces.
+/// Uses exact key matching so "PerformanceStatistics" won't match
+/// "PerformanceStatisticsAccum".
+#[cfg(target_os = "macos")]
+fn extract_ioreg_dict<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    let needle = format!("\"{key}\" = {{");
+    // Find the position of the opening brace
+    let marker_pos = text.find(&needle)?;
+    let brace_pos = marker_pos + needle.len() - 1; // position of '{'
+    let rest = &text[brace_pos + 1..];
+
+    // Walk forward tracking brace depth to find the matching '}'
+    let mut depth = 1usize;
+    let mut end = rest.len();
+    for (i, ch) in rest.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(&rest[..end])
+}
+
+/// Extract an integer value from an ioreg dict string like `"Key"=42`.
+#[cfg(target_os = "macos")]
+fn ioreg_int(dict: &str, key: &str) -> Option<i64> {
+    let needle = format!("\"{key}\"=");
+    let pos = dict.find(&needle)?;
+    let after = &dict[pos + needle.len()..];
+    let end = after.find(',').unwrap_or(after.len());
+    after[..end].trim().parse().ok()
+}
+
+/// Parse a `system_profiler SPDisplaysDataType` line like `  Key: Value`.
+#[cfg(target_os = "macos")]
+fn sp_field<'a>(output: &'a str, key: &str) -> Option<&'a str> {
+    for line in output.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix(key) {
+            return Some(rest.trim());
+        }
+    }
+    None
+}
+
+/// Convert a `system_profiler` VRAM string like "16 GB" to bytes.
+/// Apple reports GPU VRAM in binary gibibytes despite saying "GB".
+#[cfg(target_os = "macos")]
+fn parse_vram_bytes(s: &str) -> Option<u64> {
+    let mut parts = s.split_whitespace();
+    let num: u64 = parts.next()?.parse().ok()?;
+    let unit = parts.next().unwrap_or("GB").to_uppercase();
+    let mult = match unit.as_str() {
+        "TB" | "TIB" => 1u64 << 40,
+        "GB" | "GIB" => 1u64 << 30,
+        "MB" | "MIB" => 1u64 << 20,
+        _ => 1,
+    };
+    Some(num * mult)
+}
+
+#[cfg(target_os = "macos")]
+fn discover_macos_gpus() -> Vec<MacOsGpuDiscovery> {
+    // Confirm an IOAccelerator is present
+    let ioreg_out = match run_ioreg() {
+        Some(o) if !o.is_empty() => o,
+        _ => return Vec::new(),
+    };
+    // Only proceed if there's actually a PerformanceStatistics dict
+    if !ioreg_out.contains("PerformanceStatistics") {
+        return Vec::new();
+    }
+
+    // Get friendly name + VRAM total from system_profiler (runs once at startup)
+    let sp_out = std::process::Command::new("system_profiler")
+        .arg("SPDisplaysDataType")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_default();
+
+    let name = sp_field(&sp_out, "Chipset Model:")
+        .unwrap_or("AMD GPU")
+        .to_string();
+    let vram_total = sp_field(&sp_out, "VRAM (Total):")
+        .and_then(parse_vram_bytes)
+        .unwrap_or(0);
+
+    vec![MacOsGpuDiscovery { name, vram_total }]
+}
+
+// ── GpuDeviceMetrics impls ────────────────────────────────────────────────────
 
 impl GpuDeviceMetrics {
     fn new_amd(amd_dev: AmdGpuDiscovery) -> Self {
@@ -234,6 +378,90 @@ impl GpuDeviceMetrics {
         self.update_histories();
     }
 
+    #[cfg(target_os = "macos")]
+    fn new_macos(dev: MacOsGpuDiscovery) -> Self {
+        Self {
+            vendor: GpuVendor::Amd,
+            name: dev.name,
+            gpu_usage: 0.0,
+            vram_total: dev.vram_total,
+            vram_used: 0,
+            vram_usage_percent: 0.0,
+            temperature_edge: None,
+            temperature_junction: None,
+            temperature_memory: None,
+            gpu_clock_mhz: None,
+            vram_clock_mhz: None,
+            power_watts: None,
+            power_cap_watts: None,
+            fan_rpm: None,
+            fan_max_rpm: None,
+            gpu_history: Vec::with_capacity(HISTORY_SIZE),
+            vram_history: Vec::with_capacity(HISTORY_SIZE),
+            temp_history: Vec::with_capacity(HISTORY_SIZE),
+            power_history: Vec::with_capacity(HISTORY_SIZE),
+            backend: GpuBackend::MacOs,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn update_macos(&mut self) {
+        let ioreg_out = match run_ioreg() {
+            Some(o) => o,
+            None => return,
+        };
+
+        // Use the non-accumulated (current-interval) statistics dict.
+        // The key "PerformanceStatistics" must match exactly — the search
+        // needle includes the trailing ` = {` so it won't hit
+        // "PerformanceStatisticsAccum".
+        let perf = match extract_ioreg_dict(&ioreg_out, "PerformanceStatistics") {
+            Some(s) => s.to_string(),
+            None => return,
+        };
+
+        // GPU utilization
+        if let Some(v) = ioreg_int(&perf, "GPU Activity(%)") {
+            self.gpu_usage = v as f32;
+        }
+
+        // VRAM
+        if let Some(used) = ioreg_int(&perf, "inUseVidMemoryBytes") {
+            self.vram_used = used as u64;
+        }
+        // Keep vram_total from init; recompute percent each cycle
+        if self.vram_total > 0 {
+            self.vram_usage_percent =
+                (self.vram_used as f32 / self.vram_total as f32) * 100.0;
+        }
+
+        // Temperature (already in °C)
+        if let Some(v) = ioreg_int(&perf, "Temperature(C)") {
+            self.temperature_edge = Some(v as f32);
+        }
+
+        // Core / memory clocks (already in MHz)
+        if let Some(v) = ioreg_int(&perf, "Core Clock(MHz)") {
+            self.gpu_clock_mhz = Some(v as u64);
+        }
+        if let Some(v) = ioreg_int(&perf, "Memory Clock(MHz)") {
+            self.vram_clock_mhz = Some(v as u64);
+        }
+
+        // Power (already in W)
+        if let Some(v) = ioreg_int(&perf, "Total Power(W)") {
+            self.power_watts = Some(v as f32);
+        }
+
+        // Fan RPM
+        if let Some(v) = ioreg_int(&perf, "Fan Speed(RPM)") {
+            self.fan_rpm = Some(v as u64);
+        }
+
+        self.update_histories();
+    }
+
+    #[cfg(not(target_os = "macos"))]
     fn update_nvidia(&mut self, nvml: &Nvml, device_index: u32) {
         let device = match nvml.device_by_index(device_index) {
             Ok(d) => d,

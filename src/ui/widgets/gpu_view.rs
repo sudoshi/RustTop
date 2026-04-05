@@ -132,7 +132,7 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
                 text("No GPU detected")
                     .size(12)
                     .color(colors::TEXT_DIM),
-                text("(Supports AMD via sysfs, NVIDIA via NVML)")
+                text("(Supports AMD/NVIDIA on Linux, AMD via IOKit on macOS)")
                     .size(10)
                     .color(colors::TEXT_DIM),
             ]
