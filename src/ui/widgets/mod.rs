@@ -1,8 +1,10 @@
-pub mod graph;
-pub mod gauge;
-pub mod process_table;
-pub mod header;
-pub mod disk_bar;
-pub mod network_view;
+pub mod alerts_panel;
 pub mod cpu_cores;
+pub mod disk_bar;
 pub mod gpu_view;
+pub mod graph;
+pub mod header;
+pub mod network_view;
+pub mod power_sensors;
+pub mod process_table;
+pub mod settings_panel;

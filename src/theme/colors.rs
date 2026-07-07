@@ -19,7 +19,6 @@ pub const ACCENT_YELLOW: Color = Color::from_rgb(0.94, 0.84, 0.47);
 pub const ACCENT_ORANGE: Color = Color::from_rgb(0.94, 0.60, 0.33);
 pub const ACCENT_RED: Color = Color::from_rgb(0.94, 0.39, 0.47);
 pub const ACCENT_MAGENTA: Color = Color::from_rgb(0.80, 0.47, 0.94);
-pub const ACCENT_PINK: Color = Color::from_rgb(0.94, 0.47, 0.73);
 
 // Selection
 pub const ACCENT_BLUE_DIM: Color = Color::from_rgb(0.18, 0.22, 0.35);
@@ -27,10 +26,8 @@ pub const ACCENT_BLUE_DIM: Color = Color::from_rgb(0.18, 0.22, 0.35);
 // Semantic
 pub const CPU_COLOR: Color = ACCENT_CYAN;
 pub const MEM_COLOR: Color = ACCENT_MAGENTA;
-pub const SWAP_COLOR: Color = ACCENT_YELLOW;
 pub const NET_RX_COLOR: Color = ACCENT_GREEN;
 pub const NET_TX_COLOR: Color = ACCENT_RED;
-pub const DISK_COLOR: Color = ACCENT_ORANGE;
 
 // Graph gradient stops
 pub const GRAPH_FILL_OPACITY: f32 = 0.25;
@@ -58,19 +55,4 @@ pub fn heat_color(percent: f32) -> Color {
     } else {
         lerp_color(ACCENT_YELLOW, ACCENT_RED, (percent - 50.0) / 50.0)
     }
-}
-
-/// Cycle through accent colors by index (for per-core graphs, etc.)
-pub fn accent_by_index(index: usize) -> Color {
-    const PALETTE: [Color; 8] = [
-        ACCENT_CYAN,
-        ACCENT_BLUE,
-        ACCENT_MAGENTA,
-        ACCENT_PINK,
-        ACCENT_RED,
-        ACCENT_ORANGE,
-        ACCENT_YELLOW,
-        ACCENT_GREEN,
-    ];
-    PALETTE[index % PALETTE.len()]
 }

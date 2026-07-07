@@ -1,5 +1,5 @@
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
-use iced::{mouse, Element, Length, Rectangle, Renderer, Size, Theme, Color};
+use iced::{mouse, Color, Element, Length, Rectangle, Renderer, Size, Theme};
 
 use crate::theme::colors;
 
@@ -14,7 +14,13 @@ pub struct Graph {
 }
 
 impl Graph {
-    pub fn new(data: &[f32], max_value: f32, color: Color, label: &str, current_value: &str) -> Self {
+    pub fn new(
+        data: &[f32],
+        max_value: f32,
+        color: Color,
+        label: &str,
+        current_value: &str,
+    ) -> Self {
         Self {
             data: data.to_vec(),
             max_value,
@@ -44,17 +50,11 @@ impl<Message> canvas::Program<Message> for Graph {
         let graph_y = padding + 24.0;
 
         // Background
-        let bg = Path::rectangle(
-            iced::Point::new(0.0, 0.0),
-            bounds.size(),
-        );
+        let bg = Path::rectangle(iced::Point::new(0.0, 0.0), bounds.size());
         frame.fill(&bg, colors::SURFACE);
 
         // Border
-        let border = Path::rectangle(
-            iced::Point::new(0.5, 0.5),
-            Size::new(w - 1.0, h - 1.0),
-        );
+        let border = Path::rectangle(iced::Point::new(0.5, 0.5), Size::new(w - 1.0, h - 1.0));
         frame.stroke(
             &border,
             Stroke::default()
@@ -111,15 +111,16 @@ impl<Message> canvas::Program<Message> for Graph {
 
             // Draw gradient fill (simulated with semi-transparent color)
             let fill_path = fill_builder.build();
-            frame.fill(&fill_path, colors::with_alpha(self.color, colors::GRAPH_FILL_OPACITY));
+            frame.fill(
+                &fill_path,
+                colors::with_alpha(self.color, colors::GRAPH_FILL_OPACITY),
+            );
 
             // Draw the line
             let line_path = line_builder.build();
             frame.stroke(
                 &line_path,
-                Stroke::default()
-                    .with_color(self.color)
-                    .with_width(2.0),
+                Stroke::default().with_color(self.color).with_width(2.0),
             );
 
             // Glow dot at the latest value

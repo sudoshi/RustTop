@@ -13,6 +13,7 @@
   <a href="#installation">Installation</a> &bull;
   <a href="#building-from-source">Build</a> &bull;
   <a href="#architecture">Architecture</a> &bull;
+  <a href="docs/api.md">API</a> &bull;
   <a href="ROADMAP.md">Roadmap</a>
 </p>
 
@@ -32,10 +33,14 @@ RustTop is a real-time system monitor built in Rust with the [iced](https://gith
 - **Memory** -- Usage graph with percentage, used/total breakdown. Lives next to your disk info so you can see storage and RAM at a glance.
 - **GPU (AMD + NVIDIA + macOS)** -- Linux: auto-discovers AMD GPUs via sysfs, NVIDIA via NVML. macOS: reads AMD GPU metrics directly from IOKit (`ioreg`). Shows utilization and VRAM as compact horizontal bars, plus a history graph. Temperature, clock speed, power draw, and fan RPM in a tight stats row. *(Gracefully shows "No GPU detected" when none found.)*
 - **Network** -- Per-interface RX/TX rate sparklines. Scales dynamically from idle to saturated links.
-- **Disks** -- Mount point, filesystem type, used/total, and heat-colored usage percentages. Warns you before you hit 100%.
-- **Processes** -- Sortable by PID, name, CPU%, memory, or status. Filterable with a live search box. Keyboard-navigable with arrow keys and kill support. Shows up to 200 processes with selection highlighting.
-- **Dynamic Layout** -- Every panel uses proportional fill. Resize the window, go fullscreen on 4K, or squeeze it onto a laptop -- it adapts. No scrolling required.
-- **Keyboard Shortcuts** -- `q` quit, `/` filter, arrow keys to select, `k`/`Del` to kill, `F1`-`F5` to sort, `Tab` to reverse. Help bar at the bottom.
+- **Disks** -- Mount point, filesystem type, used/total, read/write throughput, and heat-colored usage percentages. Warns you before you hit 100%.
+- **Battery + Sensors** -- Linux battery status/capacity/health from power-supply sysfs, plus thermal readings from `sysinfo::Components` where the platform exposes them.
+- **Processes** -- Sortable by PID, name, CPU%, memory, or status. Filterable with match highlighting, saved filters, tree/detail views, configurable signal actions, persisted column presets, keyboard navigation, and virtualized scrolling for large process lists.
+- **Settings + Layouts** -- In-app settings strip with persisted layout presets, built-in theme selection, and compact mode.
+- **History, Alerts + Exports** -- Persistent JSONL history, sustained-threshold in-app alerts, one-shot JSON/CSV snapshots, and incident bundle export for scripts, reports, and capture. Desktop notifications are still planned.
+- **Optional Local API** -- Default-off headless HTTP API with versioned JSON snapshots, active alerts, health checks, and Prometheus text metrics. Loopback-only by default; non-loopback binds require a bearer token.
+- **Dynamic Layout** -- Every panel uses proportional fill. Resize the window, go fullscreen on 4K, or squeeze it onto a laptop -- it adapts, with independent process-table scrolling for large hosts.
+- **Keyboard Shortcuts** -- `q` quit, `,` settings, `/` filter, arrow keys select, `k`/`Del` guarded process action, `s` signal, `Enter` details, `t` tree, `f`/`w` saved filters, `c` columns, `l` layout, `m` compact, `g` theme, `F1`-`F5` sort, `Tab` reverse.
 - **Dark Tokyo Night Theme** -- Neon cyan, magenta, green, orange, and red accents on a deep dark background. Heat-colored indicators shift from green to yellow to red as values climb.
 
 ## Installation
@@ -71,9 +76,7 @@ Then run `rust_top` from your terminal or find **RustTop** in your application l
 
 ### From crates.io
 
-```bash
-cargo install rust_top
-```
+The crate is not published yet. Until crates.io publication is complete, install from source or use release artifacts.
 
 ### From Source
 
@@ -104,6 +107,26 @@ cd RustTop
 cargo build --release
 ./target/release/rust_top
 
+# One-shot snapshot export for scripts or reports
+./target/release/rust_top --no-gpu --export-json snapshot.json --export-csv snapshot.csv
+
+# Append one snapshot to local JSONL history or create a bundle directory
+./target/release/rust_top --record-history
+./target/release/rust_top --incident-bundle rusttop-incident
+
+# Configure sustained in-app alerts in your config file
+# [alerts]
+# enabled = true
+# min_duration_seconds = 10
+# cpu_percent = 90.0
+# memory_percent = 90.0
+# disk_used_percent = 90.0
+
+# Start the default-off local API in headless mode
+./target/release/rust_top --api --api-addr 127.0.0.1:9977 --api-token local-dev-token
+curl -H "Authorization: Bearer local-dev-token" http://127.0.0.1:9977/api/v1/snapshot
+curl -H "Authorization: Bearer local-dev-token" http://127.0.0.1:9977/metrics
+
 # macOS: build a double-clickable .app bundle
 ./scripts/build-macos-app.sh --install
 ```
@@ -120,14 +143,22 @@ sudo apt install ./target/debian/rust-top_*.deb
 
 ```
 src/
+├── api.rs                     # Default-off local HTTP API and Prometheus text endpoint
+├── alerts.rs                  # Sustained-threshold alert engine
+├── config.rs                  # TOML config, CLI, runtime options
+├── export.rs                  # JSON/CSV snapshots, JSONL history, bundles
 ├── main.rs                    # Entry point, window config, icon
 ├── metrics/                   # Data collection (no GUI code here)
 │   ├── collector.rs           # SystemMetrics orchestrator
 │   ├── cpu.rs                 # Per-core usage + history tracking
 │   ├── memory.rs              # RAM + swap metrics
-│   ├── disk.rs                # Mount point enumeration
-│   ├── network.rs             # Interface RX/TX rates
-│   ├── gpu.rs                 # GPU metrics (AMD sysfs + NVIDIA NVML)
+│   ├── disk.rs                # Mount points + disk I/O rates
+│   ├── network.rs             # Timestamp-based interface RX/TX rates
+│   ├── gpu.rs                 # GPU metrics (AMD/NVIDIA/Intel/macOS baselines)
+│   ├── battery.rs             # Battery capacity/health/status
+│   ├── sensors.rs             # Thermal component readings
+│   ├── history.rs             # Ring-buffer metric history
+│   ├── units.rs               # Shared byte/rate formatting
 │   └── process.rs             # Process list with sort/filter
 ├── theme/
 │   ├── mod.rs                 # Custom iced dark theme
@@ -135,8 +166,10 @@ src/
 └── ui/
     ├── app.rs                 # Main app state, update, view, subscription
     └── widgets/               # All visual components
+        ├── alerts_panel.rs    # Sustained-threshold alert strip
         ├── graph.rs           # Canvas sparkline with gradient fill + glow dot
-        ├── gauge.rs           # Arc gauge with heat coloring (available, unused)
+        ├── settings_panel.rs  # Layout/theme/compact/alert controls
+        ├── power_sensors.rs   # Battery and sensor panels
         ├── cpu_cores.rs       # btop-style 4-column per-core bars + activity dots
         ├── gpu_view.rs        # Horizontal bars + stats + utilization graph
         ├── header.rs          # System info bar (hostname, kernel, uptime)
@@ -189,9 +222,9 @@ MIT
 
 ## Contributing
 
-PRs welcome. The codebase is small (~2500 lines of Rust) and well-organized. If you want to add Intel GPU support, Windows compatibility, or a new widget -- go for it.
+PRs welcome. The codebase is small and well-organized. If you want to deepen Intel GPU telemetry, improve Windows compatibility, or add a new widget -- go for it.
 
 **Good first contributions:**
-- Intel GPU support on macOS (via IOKit `IOAcceleratorFamily2`)
+- Intel GPU engine telemetry beyond the current Linux detection baseline
 - Windows support (DirectX / NVML / AMD ADL)
 - macOS Apple Silicon GPU metrics

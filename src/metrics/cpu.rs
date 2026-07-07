@@ -1,5 +1,7 @@
 use sysinfo::System;
 
+use super::history::HistoryBuffer;
+
 const HISTORY_SIZE: usize = 120;
 
 #[derive(Debug, Clone)]
@@ -9,8 +11,8 @@ pub struct CpuMetrics {
     pub core_count: usize,
     pub brand: String,
     pub frequency_mhz: u64,
-    pub history: Vec<f32>,
-    pub per_core_history: Vec<Vec<f32>>,
+    pub history: HistoryBuffer<f32>,
+    pub per_core_history: Vec<HistoryBuffer<f32>>,
 }
 
 impl CpuMetrics {
@@ -21,7 +23,7 @@ impl CpuMetrics {
             core_count: 0,
             brand: String::new(),
             frequency_mhz: 0,
-            history: Vec::with_capacity(HISTORY_SIZE),
+            history: HistoryBuffer::new(HISTORY_SIZE),
             per_core_history: Vec::new(),
         }
     }
@@ -40,20 +42,14 @@ impl CpuMetrics {
 
         // Update global history
         self.history.push(self.global_usage);
-        if self.history.len() > HISTORY_SIZE {
-            self.history.remove(0);
-        }
 
         // Update per-core history
         if self.per_core_history.len() != self.core_count {
-            self.per_core_history = vec![Vec::with_capacity(HISTORY_SIZE); self.core_count];
+            self.per_core_history = vec![HistoryBuffer::new(HISTORY_SIZE); self.core_count];
         }
         for (i, usage) in self.per_core_usage.iter().enumerate() {
             if let Some(history) = self.per_core_history.get_mut(i) {
                 history.push(*usage);
-                if history.len() > HISTORY_SIZE {
-                    history.remove(0);
-                }
             }
         }
     }

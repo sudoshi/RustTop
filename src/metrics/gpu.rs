@@ -1,27 +1,38 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::time::{Duration, Instant};
+
+use super::history::HistoryBuffer;
+use super::units;
 
 #[cfg(not(target_os = "macos"))]
 use nvml_wrapper::Nvml;
 
 const HISTORY_SIZE: usize = 120;
+#[cfg(target_os = "macos")]
+const MACOS_GPU_UPDATE_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub enum GpuVendor {
     Amd,
     Nvidia,
+    Intel,
 }
 
 #[derive(Debug, Clone)]
-struct AmdDevice {
+struct SysfsGpuDevice {
     card_path: PathBuf,
     hwmon_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
 enum GpuBackend {
-    Amd(AmdDevice),
-    Nvidia { device_index: u32 },
+    Amd(SysfsGpuDevice),
+    Intel(SysfsGpuDevice),
+    Nvidia {
+        device_index: u32,
+    },
     #[cfg(target_os = "macos")]
     MacOs,
 }
@@ -43,10 +54,10 @@ pub struct GpuDeviceMetrics {
     pub power_cap_watts: Option<f32>,
     pub fan_rpm: Option<u64>,
     pub fan_max_rpm: Option<u64>,
-    pub gpu_history: Vec<f32>,
-    pub vram_history: Vec<f32>,
-    pub temp_history: Vec<f32>,
-    pub power_history: Vec<f32>,
+    pub gpu_history: HistoryBuffer<f32>,
+    pub vram_history: HistoryBuffer<f32>,
+    pub temp_history: HistoryBuffer<f32>,
+    pub power_history: HistoryBuffer<f32>,
     backend: GpuBackend,
 }
 
@@ -55,6 +66,8 @@ pub struct GpuMetrics {
     pub devices: Vec<GpuDeviceMetrics>,
     #[cfg(not(target_os = "macos"))]
     nvml: Option<Nvml>,
+    #[cfg(target_os = "macos")]
+    last_macos_update: Option<Instant>,
 }
 
 // Manual Debug because Nvml doesn't implement Debug
@@ -76,11 +89,24 @@ impl Clone for GpuMetrics {
             #[cfg(not(target_os = "macos"))]
             // Re-init NVML for the clone if we had it
             nvml: Nvml::init().ok(),
+            #[cfg(target_os = "macos")]
+            last_macos_update: self.last_macos_update,
         }
     }
 }
 
 impl GpuMetrics {
+    pub fn disabled() -> Self {
+        Self {
+            available: false,
+            devices: Vec::new(),
+            #[cfg(not(target_os = "macos"))]
+            nvml: None,
+            #[cfg(target_os = "macos")]
+            last_macos_update: None,
+        }
+    }
+
     pub fn new() -> Self {
         let mut device_metrics = Vec::new();
 
@@ -100,13 +126,20 @@ impl GpuMetrics {
                 device_metrics.push(GpuDeviceMetrics::new_amd(dev));
             }
 
+            let intel_devices = discover_intel_gpus();
+            for dev in intel_devices {
+                device_metrics.push(GpuDeviceMetrics::new_intel(dev));
+            }
+
             // Discover NVIDIA GPUs via NVML
             let nvml = Nvml::init().ok();
             if let Some(ref nvml_handle) = nvml {
                 if let Ok(count) = nvml_handle.device_count() {
                     for i in 0..count {
                         if let Ok(device) = nvml_handle.device_by_index(i) {
-                            let name = device.name().unwrap_or_else(|_| format!("NVIDIA GPU {}", i));
+                            let name = device
+                                .name()
+                                .unwrap_or_else(|_| format!("NVIDIA GPU {}", i));
                             device_metrics.push(GpuDeviceMetrics::new_nvidia(name, i));
                         }
                     }
@@ -124,16 +157,31 @@ impl GpuMetrics {
             devices: device_metrics,
             #[cfg(not(target_os = "macos"))]
             nvml,
+            #[cfg(target_os = "macos")]
+            last_macos_update: None,
         }
     }
 
     pub fn update(&mut self) {
+        #[cfg(target_os = "macos")]
+        let macos_due = self
+            .last_macos_update
+            .is_none_or(|last| last.elapsed() >= MACOS_GPU_UPDATE_INTERVAL);
+
         for dev in &mut self.devices {
             match &dev.backend {
                 #[cfg(target_os = "macos")]
-                GpuBackend::MacOs => dev.update_macos(),
+                GpuBackend::MacOs => {
+                    if macos_due {
+                        dev.update_macos();
+                    } else {
+                        dev.update_histories();
+                    }
+                }
                 GpuBackend::Amd(_) => dev.update_amd(),
-                GpuBackend::Nvidia { device_index: _ } => {
+                GpuBackend::Intel(_) => dev.update_intel(),
+                GpuBackend::Nvidia { device_index: _ } =>
+                {
                     #[cfg(not(target_os = "macos"))]
                     if let Some(ref nvml) = self.nvml {
                         let idx = match &dev.backend {
@@ -144,6 +192,11 @@ impl GpuMetrics {
                     }
                 }
             }
+        }
+
+        #[cfg(target_os = "macos")]
+        if macos_due {
+            self.last_macos_update = Some(Instant::now());
         }
     }
 }
@@ -207,6 +260,18 @@ fn ioreg_int(dict: &str, key: &str) -> Option<i64> {
     after[..end].trim().parse().ok()
 }
 
+#[cfg(target_os = "macos")]
+fn ioreg_nonnegative_u64(dict: &str, key: &str) -> Option<u64> {
+    ioreg_int(dict, key).and_then(|value| u64::try_from(value).ok())
+}
+
+#[cfg(target_os = "macos")]
+fn ioreg_nonnegative_f32(dict: &str, key: &str) -> Option<f32> {
+    ioreg_int(dict, key)
+        .filter(|value| *value >= 0)
+        .map(|value| value as f32)
+}
+
 /// Parse a `system_profiler SPDisplaysDataType` line like `  Key: Value`.
 #[cfg(target_os = "macos")]
 fn sp_field<'a>(output: &'a str, key: &str) -> Option<&'a str> {
@@ -268,10 +333,10 @@ fn discover_macos_gpus() -> Vec<MacOsGpuDiscovery> {
 // ── GpuDeviceMetrics impls ────────────────────────────────────────────────────
 
 impl GpuDeviceMetrics {
-    fn new_amd(amd_dev: AmdGpuDiscovery) -> Self {
+    fn new_amd(discovery: SysfsGpuDiscovery) -> Self {
         Self {
             vendor: GpuVendor::Amd,
-            name: amd_dev.name,
+            name: discovery.name,
             gpu_usage: 0.0,
             vram_total: 0,
             vram_used: 0,
@@ -285,13 +350,41 @@ impl GpuDeviceMetrics {
             power_cap_watts: None,
             fan_rpm: None,
             fan_max_rpm: None,
-            gpu_history: Vec::with_capacity(HISTORY_SIZE),
-            vram_history: Vec::with_capacity(HISTORY_SIZE),
-            temp_history: Vec::with_capacity(HISTORY_SIZE),
-            power_history: Vec::with_capacity(HISTORY_SIZE),
-            backend: GpuBackend::Amd(AmdDevice {
-                card_path: amd_dev.card_path,
-                hwmon_path: amd_dev.hwmon_path,
+            gpu_history: HistoryBuffer::new(HISTORY_SIZE),
+            vram_history: HistoryBuffer::new(HISTORY_SIZE),
+            temp_history: HistoryBuffer::new(HISTORY_SIZE),
+            power_history: HistoryBuffer::new(HISTORY_SIZE),
+            backend: GpuBackend::Amd(SysfsGpuDevice {
+                card_path: discovery.card_path,
+                hwmon_path: discovery.hwmon_path,
+            }),
+        }
+    }
+
+    fn new_intel(discovery: SysfsGpuDiscovery) -> Self {
+        Self {
+            vendor: GpuVendor::Intel,
+            name: discovery.name,
+            gpu_usage: 0.0,
+            vram_total: 0,
+            vram_used: 0,
+            vram_usage_percent: 0.0,
+            temperature_edge: None,
+            temperature_junction: None,
+            temperature_memory: None,
+            gpu_clock_mhz: None,
+            vram_clock_mhz: None,
+            power_watts: None,
+            power_cap_watts: None,
+            fan_rpm: None,
+            fan_max_rpm: None,
+            gpu_history: HistoryBuffer::new(HISTORY_SIZE),
+            vram_history: HistoryBuffer::new(HISTORY_SIZE),
+            temp_history: HistoryBuffer::new(HISTORY_SIZE),
+            power_history: HistoryBuffer::new(HISTORY_SIZE),
+            backend: GpuBackend::Intel(SysfsGpuDevice {
+                card_path: discovery.card_path,
+                hwmon_path: discovery.hwmon_path,
             }),
         }
     }
@@ -313,10 +406,10 @@ impl GpuDeviceMetrics {
             power_cap_watts: None,
             fan_rpm: None,
             fan_max_rpm: None,
-            gpu_history: Vec::with_capacity(HISTORY_SIZE),
-            vram_history: Vec::with_capacity(HISTORY_SIZE),
-            temp_history: Vec::with_capacity(HISTORY_SIZE),
-            power_history: Vec::with_capacity(HISTORY_SIZE),
+            gpu_history: HistoryBuffer::new(HISTORY_SIZE),
+            vram_history: HistoryBuffer::new(HISTORY_SIZE),
+            temp_history: HistoryBuffer::new(HISTORY_SIZE),
+            power_history: HistoryBuffer::new(HISTORY_SIZE),
             backend: GpuBackend::Nvidia { device_index },
         }
     }
@@ -342,18 +435,15 @@ impl GpuDeviceMetrics {
 
         // Temperature (millidegrees -> degrees)
         if let Some(hwmon) = &amd.hwmon_path {
-            self.temperature_edge =
-                read_sysfs_f32(&hwmon.join("temp1_input")).map(|v| v / 1000.0);
+            self.temperature_edge = read_sysfs_f32(&hwmon.join("temp1_input")).map(|v| v / 1000.0);
             self.temperature_junction =
                 read_sysfs_f32(&hwmon.join("temp2_input")).map(|v| v / 1000.0);
             self.temperature_memory =
                 read_sysfs_f32(&hwmon.join("temp3_input")).map(|v| v / 1000.0);
 
             // Clock frequencies (Hz -> MHz)
-            self.gpu_clock_mhz =
-                read_sysfs_u64(&hwmon.join("freq1_input")).map(|v| v / 1_000_000);
-            self.vram_clock_mhz =
-                read_sysfs_u64(&hwmon.join("freq2_input")).map(|v| v / 1_000_000);
+            self.gpu_clock_mhz = read_sysfs_u64(&hwmon.join("freq1_input")).map(|v| v / 1_000_000);
+            self.vram_clock_mhz = read_sysfs_u64(&hwmon.join("freq2_input")).map(|v| v / 1_000_000);
 
             // Power (microwatts -> watts)
             self.power_watts = read_sysfs_f32(&hwmon.join("power1_average"))
@@ -378,6 +468,28 @@ impl GpuDeviceMetrics {
         self.update_histories();
     }
 
+    fn update_intel(&mut self) {
+        let intel = match &self.backend {
+            GpuBackend::Intel(dev) => dev,
+            _ => return,
+        };
+        let card = &intel.card_path;
+        let device = card.join("device");
+
+        self.gpu_usage = read_sysfs_f32(&device.join("gpu_busy_percent")).unwrap_or(0.0);
+
+        if let Some(hwmon) = &intel.hwmon_path {
+            self.temperature_edge = read_sysfs_f32(&hwmon.join("temp1_input")).map(|v| v / 1000.0);
+            self.power_watts = read_sysfs_f32(&hwmon.join("power1_average"))
+                .or_else(|| read_sysfs_f32(&hwmon.join("power1_input")))
+                .map(|v| v / 1_000_000.0);
+            self.power_cap_watts =
+                read_sysfs_f32(&hwmon.join("power1_cap")).map(|v| v / 1_000_000.0);
+        }
+
+        self.update_histories();
+    }
+
     #[cfg(target_os = "macos")]
     fn new_macos(dev: MacOsGpuDiscovery) -> Self {
         Self {
@@ -396,10 +508,10 @@ impl GpuDeviceMetrics {
             power_cap_watts: None,
             fan_rpm: None,
             fan_max_rpm: None,
-            gpu_history: Vec::with_capacity(HISTORY_SIZE),
-            vram_history: Vec::with_capacity(HISTORY_SIZE),
-            temp_history: Vec::with_capacity(HISTORY_SIZE),
-            power_history: Vec::with_capacity(HISTORY_SIZE),
+            gpu_history: HistoryBuffer::new(HISTORY_SIZE),
+            vram_history: HistoryBuffer::new(HISTORY_SIZE),
+            temp_history: HistoryBuffer::new(HISTORY_SIZE),
+            power_history: HistoryBuffer::new(HISTORY_SIZE),
             backend: GpuBackend::MacOs,
         }
     }
@@ -421,41 +533,40 @@ impl GpuDeviceMetrics {
         };
 
         // GPU utilization
-        if let Some(v) = ioreg_int(&perf, "GPU Activity(%)") {
-            self.gpu_usage = v as f32;
+        if let Some(v) = ioreg_nonnegative_f32(&perf, "GPU Activity(%)") {
+            self.gpu_usage = v;
         }
 
         // VRAM
-        if let Some(used) = ioreg_int(&perf, "inUseVidMemoryBytes") {
-            self.vram_used = used as u64;
+        if let Some(used) = ioreg_nonnegative_u64(&perf, "inUseVidMemoryBytes") {
+            self.vram_used = used;
         }
         // Keep vram_total from init; recompute percent each cycle
         if self.vram_total > 0 {
-            self.vram_usage_percent =
-                (self.vram_used as f32 / self.vram_total as f32) * 100.0;
+            self.vram_usage_percent = (self.vram_used as f32 / self.vram_total as f32) * 100.0;
         }
 
         // Temperature (already in °C)
-        if let Some(v) = ioreg_int(&perf, "Temperature(C)") {
-            self.temperature_edge = Some(v as f32);
+        if let Some(v) = ioreg_nonnegative_f32(&perf, "Temperature(C)") {
+            self.temperature_edge = Some(v);
         }
 
         // Core / memory clocks (already in MHz)
-        if let Some(v) = ioreg_int(&perf, "Core Clock(MHz)") {
-            self.gpu_clock_mhz = Some(v as u64);
+        if let Some(v) = ioreg_nonnegative_u64(&perf, "Core Clock(MHz)") {
+            self.gpu_clock_mhz = Some(v);
         }
-        if let Some(v) = ioreg_int(&perf, "Memory Clock(MHz)") {
-            self.vram_clock_mhz = Some(v as u64);
+        if let Some(v) = ioreg_nonnegative_u64(&perf, "Memory Clock(MHz)") {
+            self.vram_clock_mhz = Some(v);
         }
 
         // Power (already in W)
-        if let Some(v) = ioreg_int(&perf, "Total Power(W)") {
-            self.power_watts = Some(v as f32);
+        if let Some(v) = ioreg_nonnegative_f32(&perf, "Total Power(W)") {
+            self.power_watts = Some(v);
         }
 
         // Fan RPM
-        if let Some(v) = ioreg_int(&perf, "Fan Speed(RPM)") {
-            self.fan_rpm = Some(v as u64);
+        if let Some(v) = ioreg_nonnegative_u64(&perf, "Fan Speed(RPM)") {
+            self.fan_rpm = Some(v);
         }
 
         self.update_histories();
@@ -485,7 +596,9 @@ impl GpuDeviceMetrics {
         }
 
         // Temperature
-        if let Ok(temp) = device.temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu) {
+        if let Ok(temp) =
+            device.temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
+        {
             self.temperature_edge = Some(temp as f32);
         }
 
@@ -528,11 +641,8 @@ impl GpuDeviceMetrics {
     }
 }
 
-fn push_history(history: &mut Vec<f32>, value: f32) {
+fn push_history(history: &mut HistoryBuffer<f32>, value: f32) {
     history.push(value);
-    if history.len() > HISTORY_SIZE {
-        history.remove(0);
-    }
 }
 
 fn read_sysfs_string(path: &Path) -> Option<String> {
@@ -562,18 +672,37 @@ fn read_active_dpm_clock(path: &Path) -> Option<u64> {
     None
 }
 
-// AMD GPU discovery types and functions
+// Linux sysfs GPU discovery types and functions
 
-struct AmdGpuDiscovery {
+struct SysfsGpuDiscovery {
     card_path: PathBuf,
     hwmon_path: Option<PathBuf>,
     name: String,
 }
 
-fn discover_amd_gpus() -> Vec<AmdGpuDiscovery> {
+fn discover_amd_gpus() -> Vec<SysfsGpuDiscovery> {
+    discover_amd_gpus_in(Path::new("/sys/class/drm"))
+}
+
+fn discover_intel_gpus() -> Vec<SysfsGpuDiscovery> {
+    discover_intel_gpus_in(Path::new("/sys/class/drm"))
+}
+
+fn discover_amd_gpus_in(drm_path: &Path) -> Vec<SysfsGpuDiscovery> {
+    discover_sysfs_gpus_in(drm_path, "0x1002", "AMD")
+}
+
+fn discover_intel_gpus_in(drm_path: &Path) -> Vec<SysfsGpuDiscovery> {
+    discover_sysfs_gpus_in(drm_path, "0x8086", "Intel")
+}
+
+fn discover_sysfs_gpus_in(
+    drm_path: &Path,
+    expected_vendor: &str,
+    vendor_label: &str,
+) -> Vec<SysfsGpuDiscovery> {
     let mut devices = Vec::new();
 
-    let drm_path = Path::new("/sys/class/drm");
     if !drm_path.exists() {
         return devices;
     }
@@ -594,19 +723,19 @@ fn discover_amd_gpus() -> Vec<AmdGpuDiscovery> {
 
         let vendor = read_sysfs_string(&device_path.join("vendor"));
         match vendor.as_deref() {
-            Some("0x1002") => {}
+            Some(vendor) if vendor.eq_ignore_ascii_case(expected_vendor) => {}
             _ => continue,
         }
 
-        let pci_id = read_sysfs_string(&device_path.join("device"))
-            .unwrap_or_else(|| "unknown".to_string());
+        let pci_id =
+            read_sysfs_string(&device_path.join("device")).unwrap_or_else(|| "unknown".to_string());
 
-        let gpu_name = read_gpu_name(&device_path)
-            .unwrap_or_else(|| format!("AMD GPU ({})", pci_id));
+        let gpu_name = read_gpu_name(&device_path, vendor_label)
+            .unwrap_or_else(|| format!("{vendor_label} GPU ({pci_id})"));
 
         let hwmon_path = find_hwmon_path(&device_path);
 
-        devices.push(AmdGpuDiscovery {
+        devices.push(SysfsGpuDiscovery {
             card_path,
             hwmon_path,
             name: gpu_name,
@@ -616,14 +745,14 @@ fn discover_amd_gpus() -> Vec<AmdGpuDiscovery> {
     devices
 }
 
-fn read_gpu_name(device_path: &Path) -> Option<String> {
+fn read_gpu_name(device_path: &Path, vendor_label: &str) -> Option<String> {
     let uevent = read_sysfs_string(&device_path.join("uevent"))?;
     for line in uevent.lines() {
         if line.starts_with("PCI_SLOT_NAME=") || line.starts_with("DRIVER=") {
             continue;
         }
         if let Some(name) = line.strip_prefix("PCI_ID=") {
-            return Some(format!("AMD GPU [{}]", name));
+            return Some(format!("{vendor_label} GPU [{name}]"));
         }
     }
     None
@@ -651,14 +780,89 @@ fn find_hwmon_path(device_path: &Path) -> Option<PathBuf> {
 }
 
 pub fn format_vram(bytes: u64) -> String {
-    const MIB: u64 = 1024 * 1024;
-    const GIB: u64 = MIB * 1024;
+    units::format_binary_bytes(bytes)
+}
 
-    if bytes >= GIB {
-        format!("{:.1} GiB", bytes as f64 / GIB as f64)
-    } else if bytes >= MIB {
-        format!("{:.0} MiB", bytes as f64 / MIB as f64)
-    } else {
-        format!("{} B", bytes)
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{discover_amd_gpus_in, discover_intel_gpus_in, format_vram};
+
+    #[test]
+    fn amd_sysfs_fixture_discovers_gpu_and_hwmon() {
+        let root = temp_fixture_dir("amd_sysfs");
+        let drm = root.join("drm");
+        let device = drm.join("card0").join("device");
+        let hwmon = device.join("hwmon").join("hwmon0");
+        fs::create_dir_all(&hwmon).expect("create fixture directories");
+        fs::write(device.join("vendor"), "0x1002\n").expect("write vendor");
+        fs::write(device.join("device"), "0x744c\n").expect("write device");
+        fs::write(device.join("uevent"), "PCI_ID=1002:744C\n").expect("write uevent");
+        fs::write(hwmon.join("temp1_input"), "42000\n").expect("write hwmon");
+
+        let devices = discover_amd_gpus_in(&drm);
+
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].card_path, drm.join("card0"));
+        assert_eq!(devices[0].hwmon_path, Some(hwmon));
+        assert_eq!(devices[0].name, "AMD GPU [1002:744C]");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn amd_sysfs_fixture_ignores_non_amd_gpu() {
+        let root = temp_fixture_dir("non_amd_sysfs");
+        let drm = root.join("drm");
+        let device = drm.join("card0").join("device");
+        fs::create_dir_all(&device).expect("create fixture directories");
+        fs::write(device.join("vendor"), "0x8086\n").expect("write vendor");
+
+        let devices = discover_amd_gpus_in(&drm);
+
+        assert!(devices.is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn intel_sysfs_fixture_discovers_gpu_and_hwmon() {
+        let root = temp_fixture_dir("intel_sysfs");
+        let drm = root.join("drm");
+        let device = drm.join("card1").join("device");
+        let hwmon = device.join("hwmon").join("hwmon1");
+        fs::create_dir_all(&hwmon).expect("create fixture directories");
+        fs::write(device.join("vendor"), "0x8086\n").expect("write vendor");
+        fs::write(device.join("device"), "0x56a0\n").expect("write device");
+        fs::write(device.join("uevent"), "PCI_ID=8086:56A0\n").expect("write uevent");
+        fs::write(hwmon.join("temp1_input"), "41000\n").expect("write hwmon");
+
+        let devices = discover_intel_gpus_in(&drm);
+
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].card_path, drm.join("card1"));
+        assert_eq!(devices[0].hwmon_path, Some(hwmon));
+        assert_eq!(devices[0].name, "Intel GPU [8086:56A0]");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn vram_uses_shared_binary_units() {
+        assert_eq!(format_vram(1024 * 1024 * 1024), "1.0 GiB");
+    }
+
+    fn temp_fixture_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "rust_top_{name}_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ))
     }
 }

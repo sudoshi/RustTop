@@ -1,5 +1,8 @@
 use sysinfo::System;
 
+use super::history::HistoryBuffer;
+use super::units;
+
 const HISTORY_SIZE: usize = 120;
 
 #[derive(Debug, Clone)]
@@ -11,8 +14,8 @@ pub struct MemoryMetrics {
     pub used_swap: u64,
     pub mem_usage_percent: f32,
     pub swap_usage_percent: f32,
-    pub mem_history: Vec<f32>,
-    pub swap_history: Vec<f32>,
+    pub mem_history: HistoryBuffer<f32>,
+    pub swap_history: HistoryBuffer<f32>,
 }
 
 impl MemoryMetrics {
@@ -25,8 +28,8 @@ impl MemoryMetrics {
             used_swap: 0,
             mem_usage_percent: 0.0,
             swap_usage_percent: 0.0,
-            mem_history: Vec::with_capacity(HISTORY_SIZE),
-            swap_history: Vec::with_capacity(HISTORY_SIZE),
+            mem_history: HistoryBuffer::new(HISTORY_SIZE),
+            swap_history: HistoryBuffer::new(HISTORY_SIZE),
         }
     }
 
@@ -50,32 +53,24 @@ impl MemoryMetrics {
         };
 
         self.mem_history.push(self.mem_usage_percent);
-        if self.mem_history.len() > HISTORY_SIZE {
-            self.mem_history.remove(0);
-        }
 
         self.swap_history.push(self.swap_usage_percent);
-        if self.swap_history.len() > HISTORY_SIZE {
-            self.swap_history.remove(0);
-        }
     }
 
     pub fn format_bytes(bytes: u64) -> String {
-        const KIB: u64 = 1024;
-        const MIB: u64 = KIB * 1024;
-        const GIB: u64 = MIB * 1024;
-        const TIB: u64 = GIB * 1024;
+        units::format_binary_bytes(bytes)
+    }
+}
 
-        if bytes >= TIB {
-            format!("{:.1} TiB", bytes as f64 / TIB as f64)
-        } else if bytes >= GIB {
-            format!("{:.1} GiB", bytes as f64 / GIB as f64)
-        } else if bytes >= MIB {
-            format!("{:.1} MiB", bytes as f64 / MIB as f64)
-        } else if bytes >= KIB {
-            format!("{:.1} KiB", bytes as f64 / KIB as f64)
-        } else {
-            format!("{} B", bytes)
-        }
+#[cfg(test)]
+mod tests {
+    use super::MemoryMetrics;
+
+    #[test]
+    fn formats_bytes_at_binary_boundaries() {
+        assert_eq!(MemoryMetrics::format_bytes(512), "512 B");
+        assert_eq!(MemoryMetrics::format_bytes(1024), "1.0 KiB");
+        assert_eq!(MemoryMetrics::format_bytes(1024 * 1024), "1.0 MiB");
+        assert_eq!(MemoryMetrics::format_bytes(1024 * 1024 * 1024), "1.0 GiB");
     }
 }

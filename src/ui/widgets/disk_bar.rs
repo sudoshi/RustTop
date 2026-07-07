@@ -3,8 +3,8 @@ use iced::{Element, Length, Padding};
 
 use crate::metrics::disk::DiskMetrics;
 use crate::metrics::memory::MemoryMetrics;
+use crate::metrics::units;
 use crate::theme::colors;
-
 
 pub fn disk_view<'a, Message: 'a>(disks: &DiskMetrics) -> Element<'a, Message> {
     let mut disk_rows: Vec<Element<'a, Message>> = Vec::new();
@@ -17,14 +17,21 @@ pub fn disk_view<'a, Message: 'a>(disks: &DiskMetrics) -> Element<'a, Message> {
             continue;
         }
 
-        let name = text(format!("{} ({})", disk.mount_point, disk.fs_type))
-            .size(11)
-            .color(colors::TEXT_SECONDARY);
+        let removable = if disk.is_removable { " removable" } else { "" };
+        let name = text(format!(
+            "{} ({}, {}{})",
+            disk.mount_point, disk.fs_type, disk.name, removable,
+        ))
+        .size(11)
+        .color(colors::TEXT_SECONDARY);
 
         let usage = text(format!(
-            "{} / {}  ({:.0}%)",
+            "{} / {}  free {}  R {}  W {}  ({:.0}%)",
             MemoryMetrics::format_bytes(disk.used_space),
             MemoryMetrics::format_bytes(disk.total_space),
+            MemoryMetrics::format_bytes(disk.available_space),
+            units::format_binary_rate(disk.read_rate),
+            units::format_binary_rate(disk.write_rate),
             disk.usage_percent,
         ))
         .size(11)

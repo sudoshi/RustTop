@@ -83,4 +83,4 @@ Total: ~560px                           │
 - No changes to the header
 - No changes to the data collection layer (metrics/)
 - No changes to the color theme
-- Gauge widget code (`gauge.rs`) is kept — just no longer used in the main layout. Can be removed later if desired.
+- Gauge widget code (`gauge.rs`) was removed after the main layout moved fully to bars and graphs.

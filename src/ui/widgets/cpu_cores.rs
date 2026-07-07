@@ -16,7 +16,11 @@ impl CpuCoresView {
     fn new(cpu: &CpuMetrics) -> Self {
         Self {
             per_core_usage: cpu.per_core_usage.clone(),
-            per_core_history: cpu.per_core_history.clone(),
+            per_core_history: cpu
+                .per_core_history
+                .iter()
+                .map(|history| history.values())
+                .collect(),
             core_count: cpu.core_count,
         }
     }
@@ -71,7 +75,7 @@ impl<Message> canvas::Program<Message> for CpuCoresView {
 
         // Layout: 4 columns of cores
         let cols = 4;
-        let rows_per_col = (self.core_count + cols - 1) / cols;
+        let rows_per_col = self.core_count.div_ceil(cols);
         let col_w = (w - padding * 3.0) / cols as f32;
         let row_h = 18.0;
         let bar_h = 10.0;
@@ -147,10 +151,7 @@ impl<Message> canvas::Program<Message> for CpuCoresView {
                     let dot_color = colors::heat_color(val);
                     let brightness = (val / 100.0).clamp(0.15, 1.0);
 
-                    let dot = Path::circle(
-                        iced::Point::new(dx, y + bar_h / 2.0 + 1.0),
-                        1.2,
-                    );
+                    let dot = Path::circle(iced::Point::new(dx, y + bar_h / 2.0 + 1.0), 1.2);
                     frame.fill(&dot, colors::with_alpha(dot_color, brightness));
                 }
             }

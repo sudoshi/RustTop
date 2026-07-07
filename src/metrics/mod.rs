@@ -1,9 +1,13 @@
+pub mod battery;
+pub mod collector;
 pub mod cpu;
-pub mod memory;
 pub mod disk;
+pub mod gpu;
+pub mod history;
+pub mod memory;
 pub mod network;
 pub mod process;
-pub mod gpu;
-pub mod collector;
+pub mod sensors;
+pub mod units;
 
 pub use collector::SystemMetrics;

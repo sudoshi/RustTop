@@ -129,10 +129,8 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
         return container(
             column![
                 text("GPU").size(14).color(colors::ACCENT_GREEN),
-                text("No GPU detected")
-                    .size(12)
-                    .color(colors::TEXT_DIM),
-                text("(Supports AMD/NVIDIA on Linux, AMD via IOKit on macOS)")
+                text("No GPU detected").size(12).color(colors::TEXT_DIM),
+                text("(Supports AMD/Intel/NVIDIA on Linux, AMD via IOKit on macOS)")
                     .size(10)
                     .color(colors::TEXT_DIM),
             ]
@@ -157,6 +155,7 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
     for dev in &gpu.devices {
         let vendor_color = match dev.vendor {
             GpuVendor::Amd => colors::ACCENT_RED,
+            GpuVendor::Intel => colors::ACCENT_CYAN,
             GpuVendor::Nvidia => colors::ACCENT_GREEN,
         };
         let title = text(format!("GPU — {}", dev.name))
@@ -216,14 +215,9 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
         if let Some(rpm) = dev.fan_rpm {
             let fan_text = match dev.vendor {
                 GpuVendor::Nvidia => format!("Fan {}%", rpm),
-                GpuVendor::Amd => format!("{} RPM", rpm),
+                GpuVendor::Amd | GpuVendor::Intel => format!("{} RPM", rpm),
             };
-            stats.push(
-                text(fan_text)
-                    .size(10)
-                    .color(colors::TEXT_SECONDARY)
-                    .into(),
-            );
+            stats.push(text(fan_text).size(10).color(colors::TEXT_SECONDARY).into());
         }
 
         let mut stats_row = row![].spacing(12);
@@ -232,8 +226,9 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
         }
 
         // Single GPU utilization graph (compact)
+        let gpu_history = dev.gpu_history.values();
         let gpu_graph = graph_view(
-            &dev.gpu_history,
+            &gpu_history,
             100.0,
             colors::ACCENT_GREEN,
             "GPU Utilization",
