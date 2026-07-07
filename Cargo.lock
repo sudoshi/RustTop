@@ -3144,7 +3144,7 @@ dependencies = [
 
 [[package]]
 name = "rust_top"
-version = "0.2.1"
+version = "0.2.5"
 dependencies = [
  "chrono",
  "clap",
