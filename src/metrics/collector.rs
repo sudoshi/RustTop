@@ -104,7 +104,7 @@ impl SystemMetrics {
         self.gpu.update();
 
         // Refresh slower hardware/list metadata less frequently.
-        if self.tick_count % 10 == 0 {
+        if self.tick_count.is_multiple_of(10) {
             self.disk.update_full();
             self.battery.update();
             self.sensors.update();

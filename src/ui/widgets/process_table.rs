@@ -192,7 +192,7 @@ pub fn process_table_view<'a>(
             colors::ACCENT_BLUE_DIM
         } else if is_filter_match {
             colors::with_alpha(colors::ACCENT_YELLOW, 0.12)
-        } else if idx % 2 == 0 {
+        } else if idx.is_multiple_of(2) {
             colors::SURFACE
         } else {
             colors::SURFACE_LIGHT
