@@ -117,10 +117,7 @@ fn main() -> iced::Result {
             runtime.window.min_width,
             runtime.window.min_height,
         )),
-        platform_specific: window::settings::PlatformSpecific {
-            application_id: "rust_top".to_string(),
-            ..Default::default()
-        },
+        platform_specific: platform_specific_window_settings(),
         ..Default::default()
     };
     window_settings.icon = icon;
@@ -138,4 +135,17 @@ fn main() -> iced::Result {
             let app = RustTop::new(runtime);
             (app, Task::none())
         })
+}
+
+#[cfg(target_os = "linux")]
+fn platform_specific_window_settings() -> window::settings::PlatformSpecific {
+    window::settings::PlatformSpecific {
+        application_id: "rust_top".to_string(),
+        ..Default::default()
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn platform_specific_window_settings() -> window::settings::PlatformSpecific {
+    window::settings::PlatformSpecific::default()
 }

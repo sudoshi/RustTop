@@ -42,7 +42,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Install cargo-deb
         run: cargo install cargo-deb
@@ -82,7 +82,7 @@ jobs:
           key: windows-cargo-x86_64-pc-windows-msvc-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binary
-        run: cargo build --release --target x86_64-pc-windows-msvc
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
 
       - name: Prepare artifacts
         shell: pwsh
@@ -117,8 +117,8 @@ jobs:
 
       - name: Build universal binary (Intel + Apple Silicon)
         run: |
-          cargo build --release --target x86_64-apple-darwin
-          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          cargo build --release --locked --target aarch64-apple-darwin
           lipo -create \
             target/x86_64-apple-darwin/release/rust_top \
             target/aarch64-apple-darwin/release/rust_top \
