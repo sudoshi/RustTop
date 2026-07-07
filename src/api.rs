@@ -62,18 +62,27 @@ pub fn run_api_server(options: ApiServerOptions, runtime: RuntimeOptions) -> Res
 }
 
 fn start_snapshot_sampler(runtime: RuntimeOptions) -> Arc<Mutex<SystemSnapshot>> {
-    let mut metrics = SystemMetrics::new(
-        runtime.panels.gpu,
-        runtime.default_sort.clone(),
-        runtime.sort_ascending,
-    );
-    let mut alert_engine = AlertEngine::new();
-    let initial_snapshot = collect_snapshot(&mut metrics, &mut alert_engine, &runtime);
+    let initial_snapshot = {
+        let mut metrics = SystemMetrics::new(
+            runtime.panels.gpu,
+            runtime.default_sort.clone(),
+            runtime.sort_ascending,
+        );
+        let mut alert_engine = AlertEngine::new();
+        collect_snapshot(&mut metrics, &mut alert_engine, &runtime)
+    };
     let snapshot_cache = Arc::new(Mutex::new(initial_snapshot));
     let sampler_cache = Arc::clone(&snapshot_cache);
 
     thread::spawn(move || {
         let interval = runtime.refresh_interval.max(Duration::from_millis(250));
+        let mut metrics = SystemMetrics::new(
+            runtime.panels.gpu,
+            runtime.default_sort.clone(),
+            runtime.sort_ascending,
+        );
+        let mut alert_engine = AlertEngine::new();
+
         loop {
             thread::sleep(interval);
             let snapshot = collect_snapshot(&mut metrics, &mut alert_engine, &runtime);
