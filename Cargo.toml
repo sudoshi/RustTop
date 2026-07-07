@@ -50,7 +50,7 @@ a token-protected local API, and a sortable/filterable process table. \
 Built with Rust and iced for smooth 60fps rendering."""
 section = "utils"
 priority = "optional"
-depends = "$auto"
+depends = "libc6 (>= 2.39)"
 assets = [
     ["target/release/rust_top", "usr/bin/", "755"],
     ["assets/rust_top.desktop", "usr/share/applications/", "644"],
