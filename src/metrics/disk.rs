@@ -4,14 +4,12 @@ use sysinfo::{DiskRefreshKind, Disks};
 
 #[derive(Debug, Clone)]
 pub struct DiskInfo {
-    pub name: String,
     pub mount_point: String,
     pub total_space: u64,
     pub available_space: u64,
     pub used_space: u64,
     pub usage_percent: f32,
     pub fs_type: String,
-    pub is_removable: bool,
     pub read_rate: u64,
     pub write_rate: u64,
 }
@@ -65,7 +63,6 @@ impl DiskMetrics {
                 let used = total.saturating_sub(available);
                 let usage = d.usage();
                 DiskInfo {
-                    name: d.name().to_string_lossy().to_string(),
                     mount_point: d.mount_point().to_string_lossy().to_string(),
                     total_space: total,
                     available_space: available,
@@ -76,7 +73,6 @@ impl DiskMetrics {
                         0.0
                     },
                     fs_type: d.file_system().to_string_lossy().to_string(),
-                    is_removable: d.is_removable(),
                     read_rate: calculate_disk_rate(usage.read_bytes, elapsed),
                     write_rate: calculate_disk_rate(usage.written_bytes, elapsed),
                 }

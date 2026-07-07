@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use iced::keyboard::{self, Key, Modifiers};
 use iced::widget::scrollable::{self, AbsoluteOffset};
-use iced::widget::{container, row, text, text_input, Column};
+use iced::widget::{button, column, container, row, text, text_input, Column};
 use iced::{Element, Length, Padding, Subscription, Theme};
 
 use crate::alerts::{Alert, AlertEngine};
@@ -14,17 +14,17 @@ use crate::metrics::SystemMetrics;
 use crate::theme;
 use crate::theme::colors;
 use crate::ui::widgets::{
-    alerts_panel::alerts_panel_view,
-    cpu_cores::cpu_cores_view,
+    cpu_cores::{cpu_cores_preferred_height, cpu_cores_view},
     disk_bar::disk_view,
     gpu_view::gpu_panel_view,
-    graph::graph_view,
+    graph::{graph_view, graph_view_sized_value_under_label},
     header::header_view,
     network_view::network_view,
-    power_sensors::{battery_panel_view, sensors_panel_view},
+    power_sensors::sensors_panel_view,
     process_table::{
         process_table_view, ProcessTableViewOptions, PROCESS_ROW_HEIGHT, PROCESS_TABLE_SCROLL_ID,
     },
+    utilization_gauges::utilization_gauges_view,
 };
 
 const FILTER_INPUT_ID: &str = "process_filter";
@@ -42,6 +42,7 @@ pub enum Message {
     ToggleCompactMode,
     CycleTheme,
     ToggleAlerts,
+    SetRightPanel(RightPanelView),
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +67,12 @@ pub enum KeyAction {
     CycleTheme,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RightPanelView {
+    Processes,
+    Sensors,
+}
+
 pub struct RustTop {
     metrics: SystemMetrics,
     settings: RuntimeOptions,
@@ -77,6 +84,7 @@ pub struct RustTop {
     process_scroll_y: f32,
     process_viewport_height: f32,
     show_settings: bool,
+    right_panel: RightPanelView,
     last_history_write: Option<Instant>,
     alert_engine: AlertEngine,
     active_alerts: Vec<Alert>,
@@ -101,6 +109,7 @@ impl RustTop {
             process_scroll_y: 0.0,
             process_viewport_height: 0.0,
             show_settings: false,
+            right_panel: RightPanelView::Processes,
             last_history_write: None,
             alert_engine: AlertEngine::new(),
             active_alerts: Vec::new(),
@@ -172,6 +181,9 @@ impl RustTop {
             }
             Message::ToggleAlerts => {
                 self.toggle_alerts();
+            }
+            Message::SetRightPanel(panel) => {
+                self.right_panel = panel;
             }
         }
         iced::Task::none()
@@ -518,26 +530,32 @@ impl RustTop {
         );
 
         // Memory graph
-        let mem_graph = graph_view(
+        let mem_graph = graph_view_sized_value_under_label(
             &mem_history,
             100.0,
             colors::MEM_COLOR,
-            "Memory",
+            "System Memory",
             &format!(
                 "{:.1}% — {} / {}",
                 m.memory.mem_usage_percent,
                 MemoryMetrics::format_bytes(m.memory.used_mem),
                 MemoryMetrics::format_bytes(m.memory.total_mem),
             ),
+            if self.settings.compact_mode {
+                96.0
+            } else {
+                112.0
+            },
         );
 
         // Per-core CPU view with btop-style dots
         let cores_view = cpu_cores_view(&m.cpu);
+        let cores_height = cpu_cores_preferred_height(&m.cpu);
 
         // GPU panel
         let gpu_panel = gpu_panel_view(&m.gpu);
 
-        // Network + Disk row
+        // Network + metrics row
         let net_view = network_view(&m.network);
         let disks = disk_view(&m.disk);
 
@@ -545,6 +563,17 @@ impl RustTop {
             .spacing(panel_spacing)
             .width(Length::FillPortion(1))
             .height(Length::Fill);
+
+        if self.settings.panels.cpu || self.settings.panels.gpu || self.settings.panels.memory {
+            left_panel = left_panel.push(utilization_gauges_view(
+                &m.cpu,
+                &m.gpu,
+                &m.memory,
+                self.settings.panels.cpu,
+                self.settings.panels.gpu,
+                self.settings.panels.memory,
+            ));
+        }
 
         if self.settings.panels.cpu {
             left_panel = left_panel
@@ -556,7 +585,7 @@ impl RustTop {
                 .push(
                     container(cores_view)
                         .width(Length::Fill)
-                        .height(Length::FillPortion(2)),
+                        .height(Length::Fixed(cores_height)),
                 );
         }
 
@@ -564,19 +593,26 @@ impl RustTop {
             left_panel = left_panel.push(
                 container(gpu_panel)
                     .width(Length::Fill)
-                    .height(Length::FillPortion(3)),
+                    .height(Length::FillPortion(2)),
             );
         }
 
-        let mut bottom_row = row![].spacing(panel_spacing).height(Length::FillPortion(4));
+        let mut bottom_row = row![].spacing(panel_spacing).height(Length::FillPortion(6));
         let mut has_bottom_content = false;
 
+        let mut support_column = Column::new()
+            .spacing(panel_spacing)
+            .width(Length::FillPortion(1))
+            .height(Length::Fill);
+        let mut has_support_column = false;
+
         if self.settings.panels.network {
-            bottom_row = bottom_row.push(
-                container(net_view)
-                    .width(Length::FillPortion(1))
-                    .height(Length::Fill),
-            );
+            support_column =
+                support_column.push(container(net_view).width(Length::Fill).height(Length::Fill));
+            has_support_column = true;
+        }
+        if has_support_column {
+            bottom_row = bottom_row.push(support_column);
             has_bottom_content = true;
         }
 
@@ -586,20 +622,12 @@ impl RustTop {
             .height(Length::Fill);
         let mut has_metrics_column = false;
 
-        if self.settings.panels.disk {
-            metrics_column = metrics_column.push(disks);
-            has_metrics_column = true;
-        }
-        if self.settings.panels.battery {
-            metrics_column = metrics_column.push(battery_panel_view(&m.battery));
-            has_metrics_column = true;
-        }
-        if self.settings.panels.sensors {
-            metrics_column = metrics_column.push(sensors_panel_view(&m.sensors));
-            has_metrics_column = true;
-        }
         if self.settings.panels.memory {
             metrics_column = metrics_column.push(mem_graph);
+            has_metrics_column = true;
+        }
+        if self.settings.panels.disk {
+            metrics_column = metrics_column.push(disks);
             has_metrics_column = true;
         }
         if has_metrics_column {
@@ -647,7 +675,7 @@ impl RustTop {
             border: iced::Border {
                 color: colors::SURFACE_BORDER,
                 width: 1.0,
-                radius: 0.0.into(),
+                radius: 6.0.into(),
             },
             ..Default::default()
         });
@@ -655,24 +683,8 @@ impl RustTop {
         // Main layout
         let main_content = container({
             let mut main_row = row![left_panel].spacing(panel_spacing);
-            if self.settings.panels.processes {
-                main_row = main_row.push(
-                    container(process_table_view(
-                        &m.processes,
-                        ProcessTableViewOptions {
-                            selected: self.selected_process,
-                            pending_kill_pid: self.pending_kill_pid,
-                            pending_signal_label: self.selected_signal.label(),
-                            saved_filters: &self.settings.config.process_table.saved_filters,
-                            columns: &self.settings.process_columns,
-                            scroll_y: self.process_scroll_y,
-                            viewport_height: self.process_viewport_height,
-                            show_details: self.show_process_details,
-                        },
-                    ))
-                    .width(Length::FillPortion(1))
-                    .height(Length::Fill),
-                );
+            if let Some(right_panel) = self.right_panel(m, panel_spacing) {
+                main_row = main_row.push(right_panel);
             }
             main_row
         })
@@ -686,9 +698,6 @@ impl RustTop {
                 &self.settings,
             ));
         }
-        if let Some(alerts_panel) = alerts_panel_view(&self.active_alerts) {
-            content = content.push(alerts_panel);
-        }
         content = content.push(main_content).push(help_bar);
 
         container(content)
@@ -699,6 +708,72 @@ impl RustTop {
                 ..Default::default()
             })
             .into()
+    }
+
+    fn right_panel<'a>(
+        &'a self,
+        m: &'a SystemMetrics,
+        panel_spacing: u16,
+    ) -> Option<Element<'a, Message>> {
+        let active_panel = self.effective_right_panel()?;
+
+        let mut tabs = row![].spacing(6).align_y(iced::Alignment::Center);
+        if self.settings.panels.processes {
+            tabs = tabs.push(right_panel_tab(
+                "Processes",
+                RightPanelView::Processes,
+                active_panel,
+            ));
+        }
+        if self.settings.panels.sensors {
+            tabs = tabs.push(right_panel_tab(
+                "Sensors",
+                RightPanelView::Sensors,
+                active_panel,
+            ));
+        }
+
+        let body = match active_panel {
+            RightPanelView::Processes => process_table_view(
+                &m.processes,
+                ProcessTableViewOptions {
+                    selected: self.selected_process,
+                    pending_kill_pid: self.pending_kill_pid,
+                    pending_signal_label: self.selected_signal.label(),
+                    saved_filters: &self.settings.config.process_table.saved_filters,
+                    columns: &self.settings.process_columns,
+                    scroll_y: self.process_scroll_y,
+                    viewport_height: self.process_viewport_height,
+                    show_details: self.show_process_details,
+                },
+            ),
+            RightPanelView::Sensors => sensors_panel_view(&m.sensors),
+        };
+
+        Some(
+            container(
+                column![tabs, body]
+                    .spacing(panel_spacing)
+                    .height(Length::Fill),
+            )
+            .width(Length::FillPortion(1))
+            .height(Length::Fill)
+            .into(),
+        )
+    }
+
+    fn effective_right_panel(&self) -> Option<RightPanelView> {
+        match self.right_panel {
+            RightPanelView::Processes if self.settings.panels.processes => {
+                Some(RightPanelView::Processes)
+            }
+            RightPanelView::Sensors if self.settings.panels.sensors => {
+                Some(RightPanelView::Sensors)
+            }
+            _ if self.settings.panels.processes => Some(RightPanelView::Processes),
+            _ if self.settings.panels.sensors => Some(RightPanelView::Sensors),
+            _ => None,
+        }
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -729,6 +804,44 @@ fn help_key<'a>(key: &'a str, label: &'a str) -> Element<'a, Message> {
     ]
     .spacing(4)
     .align_y(iced::Alignment::Center)
+    .into()
+}
+
+fn right_panel_tab<'a>(
+    label: &'a str,
+    panel: RightPanelView,
+    active_panel: RightPanelView,
+) -> Element<'a, Message> {
+    let active = panel == active_panel;
+    button(text(label).size(11).color(if active {
+        colors::BACKGROUND
+    } else {
+        colors::TEXT_SECONDARY
+    }))
+    .on_press(Message::SetRightPanel(panel))
+    .padding(Padding::from([3, 10]))
+    .style(move |_theme: &Theme, _status| button::Style {
+        background: Some(if active {
+            colors::ACCENT_CYAN.into()
+        } else {
+            colors::SURFACE_LIGHT.into()
+        }),
+        text_color: if active {
+            colors::BACKGROUND
+        } else {
+            colors::TEXT_SECONDARY
+        },
+        border: iced::Border {
+            color: if active {
+                colors::ACCENT_CYAN
+            } else {
+                colors::SURFACE_BORDER
+            },
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        ..Default::default()
+    })
     .into()
 }
 

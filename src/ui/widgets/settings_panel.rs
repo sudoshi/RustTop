@@ -86,7 +86,7 @@ pub fn settings_panel_view(settings: &RuntimeOptions) -> Element<'_, Message> {
             border: iced::Border {
                 color: colors::SURFACE_BORDER,
                 width: 1.0,
-                radius: 0.0.into(),
+                radius: 6.0.into(),
             },
             ..Default::default()
         })

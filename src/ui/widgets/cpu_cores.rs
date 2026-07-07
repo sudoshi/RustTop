@@ -4,6 +4,12 @@ use iced::{mouse, Element, Length, Rectangle, Renderer, Theme};
 use crate::metrics::cpu::CpuMetrics;
 use crate::theme::colors;
 
+const CORE_COLUMNS: usize = 4;
+const CORE_ROW_HEIGHT: f32 = 18.0;
+const CORE_PANEL_PADDING: f32 = 8.0;
+const CORE_TITLE_HEIGHT: f32 = 20.0;
+const CORE_BOTTOM_PADDING: f32 = 12.0;
+
 /// btop-style per-core view with usage bars and activity dots
 #[derive(Debug)]
 struct CpuCoresView {
@@ -40,15 +46,17 @@ impl<Message> canvas::Program<Message> for CpuCoresView {
         let mut frame = Frame::new(renderer, bounds.size());
         let w = bounds.width;
         let h = bounds.height;
+        let radius = 6.0.into();
 
         // Background
-        let bg = Path::rectangle(iced::Point::new(0.0, 0.0), bounds.size());
+        let bg = Path::rounded_rectangle(iced::Point::new(0.0, 0.0), bounds.size(), radius);
         frame.fill(&bg, colors::SURFACE);
 
         // Border
-        let border = Path::rectangle(
+        let border = Path::rounded_rectangle(
             iced::Point::new(0.5, 0.5),
             iced::Size::new(w - 1.0, h - 1.0),
+            radius,
         );
         frame.stroke(
             &border,
@@ -61,8 +69,8 @@ impl<Message> canvas::Program<Message> for CpuCoresView {
             return vec![frame.into_geometry()];
         }
 
-        let padding = 8.0;
-        let title_h = 20.0;
+        let padding = CORE_PANEL_PADDING;
+        let title_h = CORE_TITLE_HEIGHT;
 
         // Title
         frame.fill_text(canvas::Text {
@@ -74,10 +82,10 @@ impl<Message> canvas::Program<Message> for CpuCoresView {
         });
 
         // Layout: 4 columns of cores
-        let cols = 4;
+        let cols = CORE_COLUMNS;
         let rows_per_col = self.core_count.div_ceil(cols);
         let col_w = (w - padding * 3.0) / cols as f32;
-        let row_h = 18.0;
+        let row_h = CORE_ROW_HEIGHT;
         let bar_h = 10.0;
         let dot_section_w = 50.0; // space for activity dots
         let bar_w = col_w - dot_section_w - 50.0; // label + bar + dots
@@ -105,26 +113,29 @@ impl<Message> canvas::Program<Message> for CpuCoresView {
 
             // Usage bar background
             let bar_x = x + 22.0;
-            let bar_bg = Path::rectangle(
+            let bar_bg = Path::rounded_rectangle(
                 iced::Point::new(bar_x, y + 1.0),
                 iced::Size::new(bar_w, bar_h),
+                3.0.into(),
             );
             frame.fill(&bar_bg, colors::SURFACE_LIGHT);
 
             // Usage bar fill
             let fill_w = bar_w * (usage / 100.0).min(1.0);
             if fill_w > 0.0 {
-                let bar_fill = Path::rectangle(
+                let bar_fill = Path::rounded_rectangle(
                     iced::Point::new(bar_x, y + 1.0),
                     iced::Size::new(fill_w, bar_h),
+                    3.0.into(),
                 );
                 frame.fill(&bar_fill, colors::with_alpha(bar_color, 0.7));
 
                 // Bright edge at the tip
                 if fill_w > 2.0 {
-                    let tip = Path::rectangle(
+                    let tip = Path::rounded_rectangle(
                         iced::Point::new(bar_x + fill_w - 2.0, y + 1.0),
                         iced::Size::new(2.0, bar_h),
+                        1.0.into(),
                     );
                     frame.fill(&tip, bar_color);
                 }
@@ -166,4 +177,9 @@ pub fn cpu_cores_view<'a, Message: 'a>(cpu: &CpuMetrics) -> Element<'a, Message>
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+}
+
+pub fn cpu_cores_preferred_height(cpu: &CpuMetrics) -> f32 {
+    let rows = cpu.core_count.max(1).div_ceil(CORE_COLUMNS);
+    CORE_PANEL_PADDING + CORE_TITLE_HEIGHT + rows as f32 * CORE_ROW_HEIGHT + CORE_BOTTOM_PADDING
 }

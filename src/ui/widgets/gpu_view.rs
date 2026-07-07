@@ -59,9 +59,10 @@ impl<Message> canvas::Program<Message> for HorizontalBar {
         let bar_w = w - label_w - detail_w - 8.0;
 
         // Bar background
-        let bg = Path::rectangle(
+        let bg = Path::rounded_rectangle(
             iced::Point::new(bar_x, bar_y),
             iced::Size::new(bar_w.max(0.0), bar_h),
+            3.0.into(),
         );
         frame.fill(&bg, colors::SURFACE_LIGHT);
 
@@ -69,26 +70,29 @@ impl<Message> canvas::Program<Message> for HorizontalBar {
         let fill_w = bar_w * (self.percent / 100.0);
         if fill_w > 0.0 {
             let bar_color = colors::heat_color(self.percent);
-            let fill = Path::rectangle(
+            let fill = Path::rounded_rectangle(
                 iced::Point::new(bar_x, bar_y),
                 iced::Size::new(fill_w.max(0.0), bar_h),
+                3.0.into(),
             );
             frame.fill(&fill, colors::with_alpha(bar_color, 0.7));
 
             // Bright tip
             if fill_w > 2.0 {
-                let tip = Path::rectangle(
+                let tip = Path::rounded_rectangle(
                     iced::Point::new(bar_x + fill_w - 2.0, bar_y),
                     iced::Size::new(2.0, bar_h),
+                    1.0.into(),
                 );
                 frame.fill(&tip, bar_color);
             }
         }
 
         // Border around bar
-        let bar_border = Path::rectangle(
+        let bar_border = Path::rounded_rectangle(
             iced::Point::new(bar_x + 0.5, bar_y + 0.5),
             iced::Size::new((bar_w - 1.0).max(0.0), bar_h - 1.0),
+            3.0.into(),
         );
         frame.stroke(
             &bar_border,
@@ -162,13 +166,7 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
             .size(14)
             .color(vendor_color);
 
-        // Horizontal bars for GPU and VRAM usage
-        let gpu_bar = horizontal_bar_view(
-            dev.gpu_usage,
-            colors::ACCENT_GREEN,
-            "GPU",
-            &format!("{:.0}%", dev.gpu_usage),
-        );
+        // VRAM usage stays here; GPU utilization is summarized in the top speedometer panel.
         let vram_bar = horizontal_bar_view(
             dev.vram_usage_percent,
             colors::ACCENT_MAGENTA,
@@ -235,7 +233,7 @@ pub fn gpu_panel_view<'a, Message: 'a>(gpu: &GpuMetrics) -> Element<'a, Message>
             &format!("{:.0}%", dev.gpu_usage),
         );
 
-        let gpu_col = column![title, gpu_bar, vram_bar, stats_row, gpu_graph]
+        let gpu_col = column![title, vram_bar, stats_row, gpu_graph]
             .spacing(4)
             .height(Length::Fill);
         panels.push(gpu_col.into());

@@ -11,6 +11,13 @@ pub struct Graph {
     color: Color,
     label: String,
     current_value: String,
+    value_position: ValuePosition,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ValuePosition {
+    TopRight,
+    UnderLabel,
 }
 
 impl Graph {
@@ -27,7 +34,13 @@ impl Graph {
             color,
             label: label.to_string(),
             current_value: current_value.to_string(),
+            value_position: ValuePosition::TopRight,
         }
+    }
+
+    fn value_under_label(mut self) -> Self {
+        self.value_position = ValuePosition::UnderLabel;
+        self
     }
 }
 
@@ -46,15 +59,24 @@ impl<Message> canvas::Program<Message> for Graph {
         let w = bounds.width;
         let h = bounds.height;
         let padding = 8.0;
-        let graph_h = h - padding * 2.0 - 28.0; // leave room for label
-        let graph_y = padding + 24.0;
+        let header_h = match self.value_position {
+            ValuePosition::TopRight => 28.0,
+            ValuePosition::UnderLabel => 44.0,
+        };
+        let graph_h = (h - padding * 2.0 - header_h).max(1.0);
+        let graph_y = padding + header_h - 4.0;
+        let radius = 6.0.into();
 
         // Background
-        let bg = Path::rectangle(iced::Point::new(0.0, 0.0), bounds.size());
+        let bg = Path::rounded_rectangle(iced::Point::new(0.0, 0.0), bounds.size(), radius);
         frame.fill(&bg, colors::SURFACE);
 
         // Border
-        let border = Path::rectangle(iced::Point::new(0.5, 0.5), Size::new(w - 1.0, h - 1.0));
+        let border = Path::rounded_rectangle(
+            iced::Point::new(0.5, 0.5),
+            Size::new(w - 1.0, h - 1.0),
+            radius,
+        );
         frame.stroke(
             &border,
             Stroke::default()
@@ -141,15 +163,27 @@ impl<Message> canvas::Program<Message> for Graph {
             ..canvas::Text::default()
         });
 
-        // Current value text (right-aligned)
-        frame.fill_text(canvas::Text {
-            content: self.current_value.clone(),
-            position: iced::Point::new(w - padding - 4.0, padding + 2.0),
-            color: self.color,
-            size: iced::Pixels(14.0),
-            horizontal_alignment: iced::alignment::Horizontal::Right,
-            ..canvas::Text::default()
-        });
+        match self.value_position {
+            ValuePosition::TopRight => {
+                frame.fill_text(canvas::Text {
+                    content: self.current_value.clone(),
+                    position: iced::Point::new(w - padding - 4.0, padding + 2.0),
+                    color: self.color,
+                    size: iced::Pixels(14.0),
+                    horizontal_alignment: iced::alignment::Horizontal::Right,
+                    ..canvas::Text::default()
+                });
+            }
+            ValuePosition::UnderLabel => {
+                frame.fill_text(canvas::Text {
+                    content: self.current_value.clone(),
+                    position: iced::Point::new(padding + 4.0, padding + 20.0),
+                    color: self.color,
+                    size: iced::Pixels(13.0),
+                    ..canvas::Text::default()
+                });
+            }
+        }
 
         vec![frame.into_geometry()]
     }
@@ -177,6 +211,20 @@ pub fn graph_view_sized<'a, Message: 'a>(
     height: f32,
 ) -> Element<'a, Message> {
     Canvas::new(Graph::new(data, max_value, color, label, current_value))
+        .width(Length::Fill)
+        .height(Length::Fixed(height))
+        .into()
+}
+
+pub fn graph_view_sized_value_under_label<'a, Message: 'a>(
+    data: &[f32],
+    max_value: f32,
+    color: Color,
+    label: &str,
+    current_value: &str,
+    height: f32,
+) -> Element<'a, Message> {
+    Canvas::new(Graph::new(data, max_value, color, label, current_value).value_under_label())
         .width(Length::Fill)
         .height(Length::Fixed(height))
         .into()
