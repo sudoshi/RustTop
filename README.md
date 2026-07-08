@@ -149,6 +149,19 @@ sudo apt install ./target/debian/rust-top_*.deb
 ./scripts/build-macos-app.sh --install
 ```
 
+### Build The Native macOS Tahoe Shell
+
+An experimental SwiftUI/AppKit shell targets macOS 26 and uses native Liquid
+Glass surfaces while keeping RustTop's Rust collector as the metrics helper:
+
+```bash
+./scripts/build-macos-tahoe.sh
+open RustTopTahoe.app
+```
+
+See [docs/macos-tahoe.md](docs/macos-tahoe.md) for the architecture and next
+steps.
+
 ## CLI Usage
 
 RustTop can run as a GUI, a one-shot exporter, or a headless API process.

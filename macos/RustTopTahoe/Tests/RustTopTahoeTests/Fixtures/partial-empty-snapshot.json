@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "kind": "system_snapshot",
+  "captured_at_unix": 1783454460,
+  "hostname": "minimal-tahoe-test-mac",
+  "os_name": "macOS",
+  "os_version": "26.0",
+  "kernel_version": "25.0.0",
+  "uptime_seconds": 60,
+  "cpu_usage_percent": 0.0,
+  "memory": {
+    "total": 17179869184,
+    "used": 4294967296,
+    "available": 12884901888,
+    "usage_percent": 25.0,
+    "swap_total": 0,
+    "swap_used": 0,
+    "swap_usage_percent": 0.0
+  },
+  "disks": [],
+  "network": {
+    "total_rx_rate": 0,
+    "total_tx_rate": 0
+  },
+  "process_count": 0,
+  "top_processes": []
+}

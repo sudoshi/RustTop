@@ -6,20 +6,25 @@ mod metrics;
 mod theme;
 mod ui;
 
+use alerts::AlertEngine;
 use api::{run_api_server, ApiServerOptions};
 use clap::Parser;
 use config::{Cli, RuntimeOptions, RustTopConfig};
 use export::{
     append_history_snapshot, history_path, write_csv_snapshot, write_incident_bundle,
-    write_json_snapshot, SystemSnapshot,
+    write_json_snapshot, write_json_snapshot_line, ExportError, SystemSnapshot,
 };
 use iced::window;
 use iced::{Settings, Size, Task};
 use metrics::SystemMetrics;
+use std::io::{self, BufWriter};
+use std::thread;
+use std::time::Instant;
 use ui::app::RustTop;
 
 fn main() -> iced::Result {
     let cli = Cli::parse();
+    let stream_mode = cli.stream_json;
     let one_shot_mode = cli.export_json.is_some()
         || cli.export_csv.is_some()
         || cli.record_history
@@ -30,7 +35,7 @@ fn main() -> iced::Result {
         Ok(config) => (config, Some(requested_config_path)),
         Err(error) => {
             eprintln!("{error}");
-            if cli.config.is_some() || one_shot_mode || api_mode {
+            if cli.config.is_some() || one_shot_mode || api_mode || stream_mode {
                 std::process::exit(1);
             }
             eprintln!("Starting with defaults.");
@@ -38,6 +43,15 @@ fn main() -> iced::Result {
         }
     };
     let runtime = RuntimeOptions::from_config_and_cli(config, &cli, config_path);
+
+    if stream_mode {
+        if let Err(error) = stream_json_snapshots(runtime) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+
+        return Ok(());
+    }
 
     if one_shot_mode {
         let mut metrics = SystemMetrics::new(
@@ -135,6 +149,25 @@ fn main() -> iced::Result {
             let app = RustTop::new(runtime);
             (app, Task::none())
         })
+}
+
+fn stream_json_snapshots(runtime: RuntimeOptions) -> Result<(), ExportError> {
+    let mut metrics = SystemMetrics::new(
+        runtime.panels.gpu,
+        runtime.default_sort.clone(),
+        runtime.sort_ascending,
+    );
+    let mut alert_engine = AlertEngine::new();
+    let stdout = io::stdout();
+    let mut writer = BufWriter::new(stdout.lock());
+
+    loop {
+        metrics.refresh();
+        let alerts = alert_engine.evaluate(&metrics, &runtime.alerts, Instant::now());
+        let snapshot = SystemSnapshot::from_metrics_with_alerts(&metrics, alerts);
+        write_json_snapshot_line(&mut writer, &snapshot)?;
+        thread::sleep(runtime.refresh_interval);
+    }
 }
 
 #[cfg(target_os = "linux")]

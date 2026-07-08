@@ -6,6 +6,7 @@ use super::battery::BatteryMetrics;
 use super::cpu::CpuMetrics;
 use super::disk::DiskMetrics;
 use super::gpu::GpuMetrics;
+use super::launchd::LaunchdMetrics;
 use super::memory::MemoryMetrics;
 use super::network::NetworkMetrics;
 use super::process::{ProcessMetrics, SortField};
@@ -20,6 +21,7 @@ pub struct SystemMetrics {
     pub sensors: SensorMetrics,
     pub network: NetworkMetrics,
     pub gpu: GpuMetrics,
+    pub launchd: LaunchdMetrics,
     pub processes: ProcessMetrics,
     pub hostname: String,
     pub os_name: String,
@@ -70,6 +72,7 @@ impl SystemMetrics {
             } else {
                 GpuMetrics::disabled()
             },
+            launchd: LaunchdMetrics::new(),
             processes: ProcessMetrics::new(default_sort, sort_ascending),
             hostname,
             os_name,
@@ -108,6 +111,7 @@ impl SystemMetrics {
             self.disk.update_full();
             self.battery.update();
             self.sensors.update();
+            self.launchd.update();
         } else {
             self.disk.update_io();
         }

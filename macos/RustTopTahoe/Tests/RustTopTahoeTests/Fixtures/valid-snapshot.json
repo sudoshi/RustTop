@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "kind": "system_snapshot",
+  "captured_at_unix": 1783454400,
+  "hostname": "tahoe-test-mac",
+  "os_name": "macOS",
+  "os_version": "26.0",
+  "kernel_version": "25.0.0",
+  "uptime_seconds": 123456,
+  "cpu_usage_percent": 37.5,
+  "memory": {
+    "total": 68719476736,
+    "used": 38654705664,
+    "available": 30064771072,
+    "usage_percent": 56.25,
+    "swap_total": 8589934592,
+    "swap_used": 1073741824,
+    "swap_usage_percent": 12.5,
+    "app_memory": 21474836480,
+    "wired_memory": 8589934592,
+    "compressed_memory": 2147483648,
+    "file_cache": 6442450944,
+    "pressure_percent": 45.31,
+    "pressure_level": "normal"
+  },
+  "disks": [
+    {
+      "mount_point": "/",
+      "fs_type": "apfs",
+      "used": 512000000000,
+      "total": 1000000000000,
+      "available": 488000000000,
+      "usage_percent": 51.2,
+      "read_rate": 4096,
+      "write_rate": 8192
+    }
+  ],
+  "network": {
+    "total_rx_rate": 1024,
+    "total_tx_rate": 2048
+  },
+  "gpus": [
+    {
+      "name": "Apple GPU",
+      "usage_percent": 24.5,
+      "vram_used": 2147483648,
+      "vram_total": 8589934592,
+      "temperature": 49.5,
+      "power_watts": 11.25
+    }
+  ],
+  "batteries": [
+    {
+      "name": "InternalBattery-0",
+      "status": "Charging",
+      "capacity_percent": null,
+      "health_percent": 92.0,
+      "cycle_count": 321,
+      "power_source": "AC Power",
+      "adapter_watts": 96.0
+    }
+  ],
+  "sensors": [
+    {
+      "label": "CPU Proximity",
+      "temperature": null,
+      "critical": 100.0
+    }
+  ],
+  "launchd_jobs": [
+    {
+      "label": "com.apple.WindowServer",
+      "domain": "System",
+      "kind": "Daemon",
+      "path": "/System/Library/LaunchDaemons/com.apple.WindowServer.plist",
+      "state": "Installed"
+    },
+    {
+      "label": "com.example.rusttop.agent",
+      "domain": "User",
+      "kind": "Agent",
+      "path": "/Users/test/Library/LaunchAgents/com.example.rusttop.agent.plist",
+      "state": "Installed"
+    }
+  ],
+  "process_count": 3,
+  "top_processes": [
+    {
+      "pid": 88,
+      "name": "WindowServer",
+      "cpu_usage": 13.5,
+      "memory": 419430400,
+      "status": "Run"
+    },
+    {
+      "pid": 400,
+      "name": "RustTopTahoe",
+      "cpu_usage": 4.25,
+      "memory": 134217728,
+      "status": "Sleep"
+    }
+  ],
+  "alerts": [
+    {
+      "key": "cpu",
+      "label": "CPU Usage",
+      "value": 85.0,
+      "threshold": 80.0,
+      "unit": "Percent",
+      "severity": "Warning",
+      "active_seconds": 12
+    }
+  ]
+}

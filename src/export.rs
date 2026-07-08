@@ -30,6 +30,7 @@ pub struct SystemSnapshot {
     pub gpus: Vec<GpuSnapshot>,
     pub batteries: Vec<BatterySnapshot>,
     pub sensors: Vec<SensorSnapshot>,
+    pub launchd_jobs: Vec<LaunchdJobSnapshot>,
     pub process_count: usize,
     pub top_processes: Vec<ProcessSnapshot>,
     pub alerts: Vec<Alert>,
@@ -44,6 +45,12 @@ pub struct MemorySnapshot {
     pub swap_total: u64,
     pub swap_used: u64,
     pub swap_usage_percent: f32,
+    pub app_memory: Option<u64>,
+    pub wired_memory: Option<u64>,
+    pub compressed_memory: Option<u64>,
+    pub file_cache: Option<u64>,
+    pub pressure_percent: Option<f32>,
+    pub pressure_level: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,6 +69,16 @@ pub struct DiskSnapshot {
 pub struct NetworkSnapshot {
     pub total_rx_rate: u64,
     pub total_tx_rate: u64,
+    pub interfaces: Vec<NetworkInterfaceSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NetworkInterfaceSnapshot {
+    pub name: String,
+    pub received_bytes: u64,
+    pub transmitted_bytes: u64,
+    pub rx_rate: u64,
+    pub tx_rate: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,6 +97,9 @@ pub struct BatterySnapshot {
     pub status: String,
     pub capacity_percent: Option<f32>,
     pub health_percent: Option<f32>,
+    pub cycle_count: Option<u32>,
+    pub power_source: Option<String>,
+    pub adapter_watts: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,6 +107,15 @@ pub struct SensorSnapshot {
     pub label: String,
     pub temperature: Option<f32>,
     pub critical: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LaunchdJobSnapshot {
+    pub label: String,
+    pub domain: String,
+    pub kind: String,
+    pub path: String,
+    pub state: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,6 +156,15 @@ impl SystemSnapshot {
                 swap_total: metrics.memory.total_swap,
                 swap_used: metrics.memory.used_swap,
                 swap_usage_percent: metrics.memory.swap_usage_percent,
+                app_memory: metrics.memory.app_memory,
+                wired_memory: metrics.memory.wired_memory,
+                compressed_memory: metrics.memory.compressed_memory,
+                file_cache: metrics.memory.file_cache,
+                pressure_percent: metrics.memory.pressure_percent,
+                pressure_level: metrics
+                    .memory
+                    .pressure_level
+                    .map(|pressure| pressure.as_str()),
             },
             disks: metrics
                 .disk
@@ -146,6 +184,18 @@ impl SystemSnapshot {
             network: NetworkSnapshot {
                 total_rx_rate: metrics.network.total_rx_rate,
                 total_tx_rate: metrics.network.total_tx_rate,
+                interfaces: metrics
+                    .network
+                    .interfaces
+                    .iter()
+                    .map(|interface| NetworkInterfaceSnapshot {
+                        name: interface.name.clone(),
+                        received_bytes: interface.received_bytes,
+                        transmitted_bytes: interface.transmitted_bytes,
+                        rx_rate: interface.rx_rate,
+                        tx_rate: interface.tx_rate,
+                    })
+                    .collect(),
             },
             gpus: metrics
                 .gpu
@@ -169,6 +219,9 @@ impl SystemSnapshot {
                     status: battery.status.clone(),
                     capacity_percent: battery.capacity_percent,
                     health_percent: battery.health_percent,
+                    cycle_count: battery.cycle_count,
+                    power_source: battery.power_source.clone(),
+                    adapter_watts: battery.adapter_watts,
                 })
                 .collect(),
             sensors: metrics
@@ -179,6 +232,18 @@ impl SystemSnapshot {
                     label: sensor.label.clone(),
                     temperature: sensor.temperature,
                     critical: sensor.critical,
+                })
+                .collect(),
+            launchd_jobs: metrics
+                .launchd
+                .jobs
+                .iter()
+                .map(|job| LaunchdJobSnapshot {
+                    label: job.label.clone(),
+                    domain: job.domain.clone(),
+                    kind: job.kind.clone(),
+                    path: job.path.clone(),
+                    state: job.state.clone(),
                 })
                 .collect(),
             process_count: metrics.processes.total_count,
@@ -210,6 +275,15 @@ struct HistoryRecord<'a> {
 pub fn write_json_snapshot(path: &Path, snapshot: &SystemSnapshot) -> Result<(), ExportError> {
     let content = serde_json::to_string_pretty(snapshot).map_err(ExportError::Json)?;
     write_text(path, &content)
+}
+
+pub fn write_json_snapshot_line<W: Write>(
+    writer: &mut W,
+    snapshot: &SystemSnapshot,
+) -> Result<(), ExportError> {
+    serde_json::to_writer(&mut *writer, snapshot).map_err(ExportError::Json)?;
+    writer.write_all(b"\n").map_err(ExportError::Io)?;
+    writer.flush().map_err(ExportError::Io)
 }
 
 pub fn write_csv_snapshot(path: &Path, snapshot: &SystemSnapshot) -> Result<(), ExportError> {
@@ -409,7 +483,7 @@ fn history_tail(path: &Path, max_lines: usize) -> Result<String, ExportError> {
 }
 
 pub fn snapshot_to_csv(snapshot: &SystemSnapshot) -> String {
-    let rows = [
+    let mut rows = vec![
         ("captured_at_unix", snapshot.captured_at_unix.to_string()),
         ("hostname", snapshot.hostname.clone()),
         ("os_name", snapshot.os_name.clone()),
@@ -430,6 +504,25 @@ pub fn snapshot_to_csv(snapshot: &SystemSnapshot) -> String {
         ),
         ("process_count", snapshot.process_count.to_string()),
     ];
+
+    if let Some(pressure_percent) = snapshot.memory.pressure_percent {
+        rows.push(("memory_pressure_percent", format!("{pressure_percent:.2}")));
+    }
+    if let Some(pressure_level) = snapshot.memory.pressure_level {
+        rows.push(("memory_pressure_level", pressure_level.to_string()));
+    }
+    if let Some(app_memory) = snapshot.memory.app_memory {
+        rows.push(("memory_app", app_memory.to_string()));
+    }
+    if let Some(wired_memory) = snapshot.memory.wired_memory {
+        rows.push(("memory_wired", wired_memory.to_string()));
+    }
+    if let Some(compressed_memory) = snapshot.memory.compressed_memory {
+        rows.push(("memory_compressed", compressed_memory.to_string()));
+    }
+    if let Some(file_cache) = snapshot.memory.file_cache {
+        rows.push(("memory_file_cache", file_cache.to_string()));
+    }
 
     let mut content = String::from("metric,value\n");
     for (key, value) in rows {
@@ -484,8 +577,11 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{csv_escape, enforce_jsonl_retention, history_tail};
+    use super::{csv_escape, enforce_jsonl_retention, history_tail, write_json_snapshot_line};
     use crate::alerts::{Alert, AlertSeverity, AlertUnit};
+    use crate::metrics::launchd::LaunchdJob;
+    use crate::metrics::memory::MemoryPressureLevel;
+    use crate::metrics::network::NetworkInterface;
     use crate::metrics::process::SortField;
     use crate::metrics::SystemMetrics;
 
@@ -552,6 +648,82 @@ mod tests {
 
         assert_eq!(snapshot.schema_version, 1);
         assert_eq!(snapshot.kind, "system_snapshot");
+    }
+
+    #[test]
+    fn json_snapshot_line_is_single_line_and_flushes() {
+        let metrics = SystemMetrics::new(false, SortField::Cpu, false);
+        let snapshot = super::SystemSnapshot::from_metrics_with_alerts(&metrics, Vec::new());
+        let mut output = Vec::new();
+
+        write_json_snapshot_line(&mut output, &snapshot).expect("snapshot line");
+
+        let text = String::from_utf8(output).expect("utf8 json line");
+        assert!(text.ends_with('\n'));
+        assert_eq!(text.lines().count(), 1);
+        let parsed: serde_json::Value = serde_json::from_str(text.trim_end()).expect("valid json");
+        assert_eq!(parsed["schema_version"], 1);
+        assert_eq!(parsed["kind"], "system_snapshot");
+    }
+
+    #[test]
+    fn csv_snapshot_includes_optional_memory_pressure_fields() {
+        let mut metrics = SystemMetrics::new(false, SortField::Cpu, false);
+        metrics.memory.pressure_percent = Some(72.5);
+        metrics.memory.pressure_level = Some(MemoryPressureLevel::Warning);
+        metrics.memory.app_memory = Some(10);
+        metrics.memory.wired_memory = Some(20);
+        metrics.memory.compressed_memory = Some(30);
+        metrics.memory.file_cache = Some(40);
+
+        let snapshot = super::SystemSnapshot::from_metrics_with_alerts(&metrics, Vec::new());
+        let csv = super::snapshot_to_csv(&snapshot);
+
+        assert!(csv.contains("memory_pressure_percent,72.50"));
+        assert!(csv.contains("memory_pressure_level,warning"));
+        assert!(csv.contains("memory_app,10"));
+        assert!(csv.contains("memory_wired,20"));
+        assert!(csv.contains("memory_compressed,30"));
+        assert!(csv.contains("memory_file_cache,40"));
+    }
+
+    #[test]
+    fn snapshot_includes_network_interface_rows() {
+        let mut metrics = SystemMetrics::new(false, SortField::Cpu, false);
+        metrics.network.interfaces = vec![NetworkInterface {
+            name: "en0".to_string(),
+            received_bytes: 1_024,
+            transmitted_bytes: 2_048,
+            rx_rate: 128,
+            tx_rate: 256,
+        }];
+
+        let snapshot = super::SystemSnapshot::from_metrics_with_alerts(&metrics, Vec::new());
+
+        assert_eq!(snapshot.network.interfaces.len(), 1);
+        assert_eq!(snapshot.network.interfaces[0].name, "en0");
+        assert_eq!(snapshot.network.interfaces[0].received_bytes, 1_024);
+        assert_eq!(snapshot.network.interfaces[0].tx_rate, 256);
+    }
+
+    #[test]
+    fn snapshot_includes_launchd_jobs() {
+        let mut metrics = SystemMetrics::new(false, SortField::Cpu, false);
+        metrics.launchd.jobs = vec![LaunchdJob {
+            label: "com.example.agent".to_string(),
+            domain: "User".to_string(),
+            kind: "Agent".to_string(),
+            path: "/Users/example/Library/LaunchAgents/com.example.agent.plist".to_string(),
+            state: "Installed".to_string(),
+        }];
+
+        let snapshot = super::SystemSnapshot::from_metrics_with_alerts(&metrics, Vec::new());
+
+        assert_eq!(snapshot.launchd_jobs.len(), 1);
+        assert_eq!(snapshot.launchd_jobs[0].label, "com.example.agent");
+        assert_eq!(snapshot.launchd_jobs[0].domain, "User");
+        assert_eq!(snapshot.launchd_jobs[0].kind, "Agent");
+        assert_eq!(snapshot.launchd_jobs[0].state, "Installed");
     }
 
     fn temp_path(name: &str) -> std::path::PathBuf {

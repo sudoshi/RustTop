@@ -1,0 +1,125 @@
+name: macOS Tahoe
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      build_bundle:
+        description: Run the Tahoe app bundle smoke build
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-test:
+    name: Build and Test
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-tahoe-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            macos-tahoe-cargo-
+
+      - name: Build Swift Tahoe package
+        run: swift build --package-path macos/RustTopTahoe
+
+      - name: Run Swift tests if present
+        run: |
+          if find macos/RustTopTahoe/Tests -type f -name '*.swift' -print -quit 2>/dev/null | grep -q .; then
+            swift test --package-path macos/RustTopTahoe
+          else
+            echo "No Swift tests found; skipping swift test."
+          fi
+
+      - name: Run Tahoe static visual and accessibility audit
+        run: ./scripts/audit-macos-tahoe-static.sh --out "$RUNNER_TEMP/tahoe-static-audit"
+
+      - name: Check Rust build
+        run: cargo check --locked
+
+      - name: Run Rust tests
+        run: cargo test --locked
+
+      - name: Build Tahoe app bundle
+        if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_bundle)
+        run: |
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            RUSTTOP_LOCKED=1 \
+              RUSTTOP_TAHOE_PACKAGE_ZIP=1 \
+              RUSTTOP_TAHOE_PACKAGE_DMG=1 \
+              ./scripts/build-macos-tahoe.sh
+          else
+            RUSTTOP_LOCKED=1 ./scripts/build-macos-tahoe.sh
+          fi
+
+      - name: Smoke test Tahoe app bundle
+        if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_bundle)
+        run: |
+          plutil -lint RustTopTahoe.app/Contents/Info.plist
+          RustTopTahoe.app/Contents/Resources/rust_top --export-json "$RUNNER_TEMP/rusttop-tahoe-smoke.json"
+          /usr/bin/python3 -m json.tool "$RUNNER_TEMP/rusttop-tahoe-smoke.json" >/dev/null
+          /usr/bin/python3 - "$RUNNER_TEMP/rusttop-tahoe-smoke.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], "r", encoding="utf-8") as snapshot:
+              payload = json.load(snapshot)
+
+          if payload.get("schema_version") != 1:
+              raise SystemExit(f"unexpected schema_version: {payload.get('schema_version')!r}")
+          PY
+
+      - name: Run Tahoe no-GUI QA smoke
+        if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_bundle)
+        run: |
+          ./scripts/qa-macos-tahoe.sh \
+            --no-build \
+            --no-gui \
+            --no-release-validation \
+            --smoke-seconds 5 \
+            --stream-seconds 5 \
+            --out "$RUNNER_TEMP/tahoe-qa"
+
+      - name: Verify Tahoe tag package checksums
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          shasum -a 256 -c dist/RustTopTahoe-*-macos.zip.sha256
+          shasum -a 256 -c dist/RustTopTahoe-*-macos.dmg.sha256
+
+      - name: Upload Tahoe tag artifact
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustTopTahoe-${{ github.ref_name }}-macos
+          path: dist/

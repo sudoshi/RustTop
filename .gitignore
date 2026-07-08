@@ -1,4 +1,7 @@
 /target
+dist/
+.build/
+macos/**/.build/
 
 # macOS
 .DS_Store

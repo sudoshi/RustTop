@@ -57,13 +57,21 @@ impl DiskMetrics {
         self.disks = self
             .disks_handle
             .iter()
-            .map(|d| {
+            .filter_map(|d| {
+                let mount_point = d.mount_point().to_string_lossy().to_string();
+                let fs_type = d.file_system().to_string_lossy().to_string();
+                if cfg!(target_os = "macos")
+                    && should_skip_macos_apfs_system_volume(&mount_point, &fs_type)
+                {
+                    return None;
+                }
+
                 let total = d.total_space();
                 let available = d.available_space();
                 let used = total.saturating_sub(available);
                 let usage = d.usage();
-                DiskInfo {
-                    mount_point: d.mount_point().to_string_lossy().to_string(),
+                Some(DiskInfo {
+                    mount_point,
                     total_space: total,
                     available_space: available,
                     used_space: used,
@@ -72,10 +80,10 @@ impl DiskMetrics {
                     } else {
                         0.0
                     },
-                    fs_type: d.file_system().to_string_lossy().to_string(),
+                    fs_type,
                     read_rate: calculate_disk_rate(usage.read_bytes, elapsed),
                     write_rate: calculate_disk_rate(usage.written_bytes, elapsed),
-                }
+                })
             })
             .collect();
     }
@@ -98,11 +106,30 @@ fn disk_refresh_kind(full_refresh: bool) -> DiskRefreshKind {
     }
 }
 
+fn should_skip_macos_apfs_system_volume(mount_point: &str, fs_type: &str) -> bool {
+    if !fs_type.eq_ignore_ascii_case("apfs") {
+        return false;
+    }
+
+    matches!(
+        mount_point,
+        "/System/Volumes/Data"
+            | "/System/Volumes/Preboot"
+            | "/System/Volumes/Update"
+            | "/System/Volumes/VM"
+            | "/System/Volumes/xarts"
+            | "/System/Volumes/iSCPreboot"
+            | "/System/Volumes/Hardware"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use super::{calculate_disk_rate, disk_refresh_kind, DiskMetrics};
+    use super::{
+        calculate_disk_rate, disk_refresh_kind, should_skip_macos_apfs_system_volume, DiskMetrics,
+    };
 
     #[test]
     fn calculates_disk_rate_from_elapsed_time() {
@@ -136,5 +163,22 @@ mod tests {
         assert!(full.storage());
         assert!(full.kind());
         assert!(full.io_usage());
+    }
+
+    #[test]
+    fn macos_apfs_system_volume_filter_keeps_user_mounts() {
+        assert!(should_skip_macos_apfs_system_volume(
+            "/System/Volumes/Data",
+            "apfs"
+        ));
+        assert!(should_skip_macos_apfs_system_volume(
+            "/System/Volumes/Preboot",
+            "APFS"
+        ));
+        assert!(!should_skip_macos_apfs_system_volume("/", "apfs"));
+        assert!(!should_skip_macos_apfs_system_volume(
+            "/System/Volumes/Data",
+            "ext4"
+        ));
     }
 }

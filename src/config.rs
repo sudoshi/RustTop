@@ -23,6 +23,10 @@ pub struct Cli {
     #[arg(long, value_name = "MS")]
     pub interval: Option<u64>,
 
+    /// Refresh interval in milliseconds for streaming/headless modes.
+    #[arg(long = "interval-ms", value_name = "MS")]
+    pub interval_ms: Option<u64>,
+
     /// Disable GPU collection and hide the GPU panel.
     #[arg(long)]
     pub no_gpu: bool,
@@ -30,6 +34,10 @@ pub struct Cli {
     /// Write one system snapshot as JSON and exit.
     #[arg(long, value_name = "PATH")]
     pub export_json: Option<PathBuf>,
+
+    /// Stream system snapshots as newline-delimited JSON until terminated.
+    #[arg(long)]
+    pub stream_json: bool,
 
     /// Write one summary snapshot as CSV and exit.
     #[arg(long, value_name = "PATH")]
@@ -82,7 +90,8 @@ impl RuntimeOptions {
         config_path: Option<PathBuf>,
     ) -> Self {
         let interval_ms = cli
-            .interval
+            .interval_ms
+            .or(cli.interval)
             .unwrap_or(config.refresh.interval_ms)
             .clamp(MIN_REFRESH_INTERVAL_MS, MAX_REFRESH_INTERVAL_MS);
 
@@ -617,8 +626,10 @@ mod tests {
         let cli = Cli {
             config: None,
             interval: Some(1_000),
+            interval_ms: None,
             no_gpu: true,
             export_json: None,
+            stream_json: false,
             export_csv: None,
             record_history: false,
             incident_bundle: None,
@@ -640,8 +651,10 @@ mod tests {
         let cli = Cli {
             config: None,
             interval: Some(1),
+            interval_ms: None,
             no_gpu: false,
             export_json: None,
+            stream_json: false,
             export_csv: None,
             record_history: false,
             incident_bundle: None,
@@ -656,6 +669,29 @@ mod tests {
             runtime.refresh_interval,
             Duration::from_millis(MIN_REFRESH_INTERVAL_MS)
         );
+    }
+
+    #[test]
+    fn interval_ms_alias_wins_for_headless_modes() {
+        let config = RustTopConfig::default();
+        let cli = Cli {
+            config: None,
+            interval: Some(1_000),
+            interval_ms: Some(2_000),
+            no_gpu: false,
+            export_json: None,
+            stream_json: true,
+            export_csv: None,
+            record_history: false,
+            incident_bundle: None,
+            api: false,
+            api_addr: None,
+            api_token: None,
+        };
+
+        let runtime = RuntimeOptions::from_config_and_cli(config, &cli, None);
+
+        assert_eq!(runtime.refresh_interval, Duration::from_millis(2_000));
     }
 
     #[test]
@@ -780,8 +816,10 @@ mod tests {
         let cli = Cli {
             config: None,
             interval: None,
+            interval_ms: None,
             no_gpu: false,
             export_json: None,
+            stream_json: false,
             export_csv: None,
             record_history: false,
             incident_bundle: None,
@@ -816,8 +854,10 @@ mod tests {
         let cli = Cli {
             config: None,
             interval: None,
+            interval_ms: None,
             no_gpu: true,
             export_json: None,
+            stream_json: false,
             export_csv: None,
             record_history: false,
             incident_bundle: None,
